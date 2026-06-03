@@ -63,6 +63,8 @@ AMPERE_HOST=ubuntu@your-ampere-host TS_AUTHKEY=... ./scripts/ampere-redroid-tail
 ```
 
 Setup and server requirements are documented in [docs/setup.md](docs/setup.md).
+F-Droid readiness work is tracked in
+[docs/fdroid-readiness-plan.md](docs/fdroid-readiness-plan.md).
 
 ## License
 
