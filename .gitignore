@@ -23,5 +23,6 @@ local.properties
 *.aab
 *.jks
 *.keystore
+keystores/
 *.idsig
 native/out/
