@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -56,8 +59,12 @@ import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -68,7 +75,6 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -89,7 +95,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -234,7 +239,10 @@ fun RsyncBackupApp(
             val wide = maxWidth >= 900.dp
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
-                    NavigationRail(Modifier.fillMaxHeight()) {
+                    NavigationRail(
+                        modifier = Modifier.fillMaxHeight(),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
                         MainScreens.forEach { item ->
                             NavigationRailItem(
                                 selected = item == screen,
@@ -333,18 +341,7 @@ private fun AppScaffold(
                     }
                 },
                 title = {
-                    Column {
-                        Text(if (screen == Screen.Dashboard) "PocketSync" else screen.label)
-                        if (screen == Screen.Dashboard) {
-                            Text(
-                                "Profiles, queue, and recent backup state",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                    Text("PocketSync")
                 },
                 actions = {
                     if (screen != Screen.Settings) {
@@ -399,7 +396,7 @@ private data class RunRequest(val context: Context, val profileId: String)
 
 @Composable
 private fun PhoneBottomNavigation(selected: Screen, onSelect: (Screen) -> Unit) {
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
         MainScreens.forEach { item ->
             NavigationBarItem(
                 selected = selected == item,
@@ -438,7 +435,7 @@ private fun DashboardScreen(state: AppState, onRun: (RunRequest) -> Unit) {
             )
         }
         item {
-            SectionHeader("Dashboard", "Overview of profiles and activity")
+            SectionHeader("Dashboard", "Profiles, queue, and recent backup state")
         }
         items(state.profiles) { profile ->
             val issues = ProfileValidator.validate(profile, state)
@@ -487,11 +484,11 @@ private fun QueueSection(state: AppState) {
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("Queue", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Text("${state.queue.queuedProfileIds.size} jobs", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+            Text("${state.queue.queuedProfileIds.size} jobs", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         val runningName = state.profiles.firstOrNull { it.id == state.queue.runningProfileId }?.name
         if (runningName == null && state.queue.queuedProfileIds.isEmpty()) {
-            Text("No backup jobs waiting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Text("No backup jobs waiting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             runningName?.let {
                 QueueRow("Running", it, state.runProgress.bytesTransferred ?: state.runProgress.message ?: "In progress")
@@ -510,7 +507,7 @@ private fun QueueRow(label: String, name: String, detail: String) {
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
             Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -537,7 +534,7 @@ private fun DashboardProfileProgress(progress: RunProgressState) {
         Text(
             line,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.secondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),
@@ -568,8 +565,9 @@ private fun CompactMetricStrip(metrics: List<MetricSpec>) {
     ) {
         metrics.forEach { metric ->
             Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = MaterialTheme.shapes.large,
                 tonalElevation = 1.dp,
                 shadowElevation = 0.dp,
                 modifier = Modifier.weight(1f),
@@ -588,7 +586,7 @@ private fun CompactMetricStrip(metrics: List<MetricSpec>) {
                     Text(
                         metric.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -701,13 +699,13 @@ private fun ServerListRow(
 @Composable
 private fun EntityIcon(icon: ImageVector, tone: MetricTone) {
     Surface(
-        color = toneColor(tone).copy(alpha = 0.12f),
-        shape = RoundedCornerShape(6.dp),
+        color = toneContainerColor(tone),
+        contentColor = toneOnContainerColor(tone),
+        shape = MaterialTheme.shapes.medium,
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = toneColor(tone),
             modifier = Modifier
                 .padding(8.dp)
                 .size(22.dp),
@@ -718,12 +716,12 @@ private fun EntityIcon(icon: ImageVector, tone: MetricTone) {
 @Composable
 private fun ProfileRouteLine(profile: BackupProfile, server: ServerRecord?) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.Storage, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+        Icon(Icons.Outlined.Storage, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(5.dp))
         Text(
             listOfNotNull(server?.name ?: "Missing server", routeModeLabel(profile.targetMode)).joinToString(" - "),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -733,8 +731,8 @@ private fun ProfileRouteLine(profile: BackupProfile, server: ServerRecord?) {
 @Composable
 private fun LastNextLine(profile: BackupProfile) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Text("Last: ${profile.status.lastSuccessAt ?: profile.status.lastRunAt ?: "Never"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Text("Next: ${profile.status.nextRunAt ?: scheduleLabel(profile.schedule)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text("Last: ${profile.status.lastSuccessAt ?: profile.status.lastRunAt ?: "Never"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text("Next: ${profile.status.nextRunAt ?: scheduleLabel(profile.schedule)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
     }
 }
 
@@ -752,7 +750,7 @@ private fun DashboardRunStatusLine(profile: BackupProfile, liveProgress: RunProg
                 Text(
                     line,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -774,8 +772,8 @@ private fun RouteSummaryLine(label: String, value: String, tone: MetricTone) {
 @Composable
 private fun StatusBadge(label: String, tone: MetricTone) {
     Surface(
-        color = toneColor(tone).copy(alpha = 0.12f),
-        contentColor = toneColor(tone),
+        color = toneContainerColor(tone),
+        contentColor = toneOnContainerColor(tone),
         shape = RoundedCornerShape(50),
     ) {
         Text(
@@ -803,16 +801,17 @@ private fun RouteChip(label: String, tone: MetricTone = MetricTone.Route) {
 private fun AddRow(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         onClick = onClick,
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.primary,
+        shape = MaterialTheme.shapes.medium,
         tonalElevation = 1.dp,
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-            Text(">", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+            Text(label, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -831,11 +830,29 @@ private fun EmptyActionRow(title: String, action: String, icon: ImageVector, onC
 
 @Composable
 private fun toneColor(tone: MetricTone) = when (tone) {
-    MetricTone.Success -> if (MaterialTheme.colorScheme.background == Color(0xFF0B0F0E)) Color(0xFF9AD37E) else SuccessColor
+    MetricTone.Success -> MaterialTheme.colorScheme.primary
     MetricTone.Warning -> MaterialTheme.colorScheme.tertiary
     MetricTone.Destructive -> MaterialTheme.colorScheme.error
     MetricTone.Route -> MaterialTheme.colorScheme.primary
-    MetricTone.Neutral -> MaterialTheme.colorScheme.secondary
+    MetricTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun toneContainerColor(tone: MetricTone) = when (tone) {
+    MetricTone.Success -> MaterialTheme.colorScheme.primaryContainer
+    MetricTone.Warning -> MaterialTheme.colorScheme.tertiaryContainer
+    MetricTone.Destructive -> MaterialTheme.colorScheme.errorContainer
+    MetricTone.Route -> MaterialTheme.colorScheme.secondaryContainer
+    MetricTone.Neutral -> MaterialTheme.colorScheme.surfaceVariant
+}
+
+@Composable
+private fun toneOnContainerColor(tone: MetricTone) = when (tone) {
+    MetricTone.Success -> MaterialTheme.colorScheme.onPrimaryContainer
+    MetricTone.Warning -> MaterialTheme.colorScheme.onTertiaryContainer
+    MetricTone.Destructive -> MaterialTheme.colorScheme.onErrorContainer
+    MetricTone.Route -> MaterialTheme.colorScheme.onSecondaryContainer
+    MetricTone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 private fun conciseIssueText(
@@ -950,88 +967,89 @@ private fun ProfilesScreen(
             modifier = Modifier.fillMaxSize(),
         )
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item {
                     SectionHeader("Profiles", "${state.profiles.size} configured")
-                    Spacer(Modifier.weight(1f))
-                    IconButton(
-                        onClick = addProfile,
-                    ) {
-                        Icon(Icons.Outlined.Add, contentDescription = "Add profile")
-                    }
                 }
-            }
-            items(state.profiles, key = { it.id }) { profile ->
-                val server = state.servers.firstOrNull { it.id == profile.serverId }
-                val issues = ProfileValidator.validate(profile, state)
-                val isSelected = profile.id == selected?.id
-                ProfileListRow(
-                    profile = profile,
-                    server = server,
-                    issues = issues,
-                    selected = isSelected,
-                    onClick = { selectedProfileId = profile.id },
-                    trailing = {
-                        if (!isSelected) {
+                items(state.profiles, key = { it.id }) { profile ->
+                    val server = state.servers.firstOrNull { it.id == profile.serverId }
+                    val issues = ProfileValidator.validate(profile, state)
+                    val isSelected = profile.id == selected?.id
+                    ProfileListRow(
+                        profile = profile,
+                        server = server,
+                        issues = issues,
+                        selected = isSelected,
+                        onClick = { selectedProfileId = profile.id },
+                        trailing = {
+                            if (!isSelected) {
+                                FilledTonalButton(
+                                    onClick = { BackupService.start(context, profile.id) },
+                                    enabled = issues.none { it.severity == Severity.ERROR },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                ) {
+                                    Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Run")
+                                }
+                            }
+                        },
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             Button(
                                 onClick = { BackupService.start(context, profile.id) },
                                 enabled = issues.none { it.severity == Severity.ERROR },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                modifier = Modifier.weight(1f),
                             ) {
                                 Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(8.dp))
                                 Text("Run")
                             }
-                        }
-                    },
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Button(
-                            onClick = { BackupService.start(context, profile.id) },
-                            enabled = issues.none { it.severity == Severity.ERROR },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Run")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                draftProfile = null
-                                selectedProfileId = profile.id
-                                onDetailActiveChange(true, closeEditor)
-                                compactEditorOpen = true
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Edit")
-                        }
-                        OutlinedButton(
-                            onClick = { onSelectScreen(Screen.Logs) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Outlined.Article, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Logs")
+                            FilledTonalButton(
+                                onClick = {
+                                    draftProfile = null
+                                    selectedProfileId = profile.id
+                                    onDetailActiveChange(true, closeEditor)
+                                    compactEditorOpen = true
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Edit")
+                            }
+                            OutlinedButton(
+                                onClick = { onSelectScreen(Screen.Logs) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Outlined.Article, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Logs")
+                            }
                         }
                     }
                 }
-            }
-            if (state.profiles.isEmpty()) {
-                item {
-                    EmptyActionRow("No profiles yet", "Add profile", Icons.Outlined.Add, addProfile)
+                if (state.profiles.isEmpty()) {
+                    item {
+                        EmptyActionRow("No profiles yet", "Add profile", Icons.Outlined.Add, addProfile)
+                    }
                 }
             }
-            item {
-                AddRow("Add profile", Icons.Outlined.Add, addProfile, Modifier.testTag("profiles-add-button"))
-            }
+            ExtendedFloatingActionButton(
+                onClick = addProfile,
+                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                text = { Text("Add profile") },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .imePadding()
+                    .padding(16.dp)
+                    .testTag("profiles-add-button"),
+            )
         }
     }
 }
@@ -1207,7 +1225,7 @@ private fun ProfileEditor(
         }
         CommandPreview(state, editing)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) {
+            FilledTonalButton(onClick = {}, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Test")
@@ -1282,81 +1300,82 @@ private fun ServersScreen(
             modifier = Modifier.fillMaxSize(),
         )
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    SectionHeader("Servers", "${state.servers.size} configured")
-                    Spacer(Modifier.weight(1f))
-                    IconButton(
-                        onClick = addServer,
-                    ) {
-                        Icon(Icons.Outlined.Add, contentDescription = "Add server")
-                    }
-                }
-            }
-            items(state.servers, key = { it.id }) { server ->
-                val trusted = state.trustedHostFingerprints.any {
-                    it.serverId == server.id || it.serverId == server.fingerprintGroupId
-                }
-                val isSelected = server.id == selected?.id
-                ServerListRow(
-                    server = server,
-                    trusted = trusted,
-                    selected = isSelected,
-                    onClick = { selectedServerId = server.id },
-                    trailing = {
-                        StatusBadge(if (trusted) "Reachable" else "Needs fingerprint", if (trusted) MetricTone.Success else MetricTone.Warning)
-                    },
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = {
-                                selectedServerId = server.id
-                                onDetailActiveChange(true, closeEditor)
-                                compactEditorOpen = true
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Test")
-                        }
-                        OutlinedButton(
-                            onClick = { selectedServerId = server.id },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Select")
-                        }
-                        Button(
-                            onClick = {
-                                draftServer = null
-                                selectedServerId = server.id
-                                onDetailActiveChange(true, closeEditor)
-                                compactEditorOpen = true
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Edit")
-                        }
-                    }
-                }
-            }
-            if (state.servers.isEmpty()) {
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 item {
-                    EmptyActionRow("No servers yet", "Add server", Icons.Outlined.Add, addServer)
+                    SectionHeader("Servers", "${state.servers.size} configured")
+                }
+                items(state.servers, key = { it.id }) { server ->
+                    val trusted = state.trustedHostFingerprints.any {
+                        it.serverId == server.id || it.serverId == server.fingerprintGroupId
+                    }
+                    val isSelected = server.id == selected?.id
+                    ServerListRow(
+                        server = server,
+                        trusted = trusted,
+                        selected = isSelected,
+                        onClick = { selectedServerId = server.id },
+                        trailing = {
+                            StatusBadge(if (trusted) "Reachable" else "Needs fingerprint", if (trusted) MetricTone.Success else MetricTone.Warning)
+                        },
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            FilledTonalButton(
+                                onClick = {
+                                    selectedServerId = server.id
+                                    onDetailActiveChange(true, closeEditor)
+                                    compactEditorOpen = true
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Test")
+                            }
+                            OutlinedButton(
+                                onClick = { selectedServerId = server.id },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Select")
+                            }
+                            Button(
+                                onClick = {
+                                    draftServer = null
+                                    selectedServerId = server.id
+                                    onDetailActiveChange(true, closeEditor)
+                                    compactEditorOpen = true
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Edit")
+                            }
+                        }
+                    }
+                }
+                if (state.servers.isEmpty()) {
+                    item {
+                        EmptyActionRow("No servers yet", "Add server", Icons.Outlined.Add, addServer)
+                    }
                 }
             }
-            item {
-                AddRow("Add server", Icons.Outlined.Add, addServer, Modifier.testTag("servers-add-button"))
-            }
+            ExtendedFloatingActionButton(
+                onClick = addServer,
+                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                text = { Text("Add server") },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .imePadding()
+                    .padding(16.dp)
+                    .testTag("servers-add-button"),
+            )
         }
     }
 }
@@ -1482,7 +1501,7 @@ private fun ServerEditor(
             Text("Trusted fingerprint", style = MaterialTheme.typography.titleMedium)
             Text("LAN and Tailscale addresses share fingerprint group ${editing.fingerprintGroupId}")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
+                FilledTonalButton(
                     enabled = scanTarget == null && editing.lanHost.isNotBlank(),
                     modifier = Modifier.testTag("server-scan-lan-button"),
                     onClick = {
@@ -1507,10 +1526,10 @@ private fun ServerEditor(
                     Spacer(Modifier.width(8.dp))
                     Text(if (scanTarget == "LAN") "Scanning" else "Scan LAN")
                 }
-                OutlinedButton(
+                FilledTonalButton(
                     enabled = scanTarget == null && !editing.tailscaleHost.isNullOrBlank(),
                     onClick = {
-                        val host = editing.tailscaleHost ?: return@OutlinedButton
+                        val host = editing.tailscaleHost ?: return@FilledTonalButton
                         scanTarget = "Tailscale"
                         scanError = null
                         pendingHostKeys = emptyList()
@@ -1753,7 +1772,7 @@ private fun SshKeysScreen(state: AppState, repository: AppRepository, secretStor
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Button(
+                    FilledTonalButton(
                         onClick = {
                             runCatching { SshKeyManager(secretStore).generateEd25519() }
                                 .onSuccess { key ->
@@ -2134,7 +2153,7 @@ private fun LogsScreen(state: AppState, repository: AppRepository) {
                         Text(
                             log.finishedAt ?: "Running since ${log.startedAt}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -2154,7 +2173,7 @@ private fun LogsScreen(state: AppState, repository: AppRepository) {
                             "Reason detail: $detail",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (log.status == RunStatus.SUCCESS) {
-                                MaterialTheme.colorScheme.secondary
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             } else {
                                 MaterialTheme.colorScheme.error
                             },
@@ -2177,7 +2196,7 @@ private fun LogsScreen(state: AppState, repository: AppRepository) {
             item {
                 SectionCard {
                     Text("No logs yet", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Run a profile to record the first result.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    Text("Run a profile to record the first result.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -2187,8 +2206,9 @@ private fun LogsScreen(state: AppState, repository: AppRepository) {
 @Composable
 private fun CompactLogBlock(log: BackupLog) {
     Surface(
-        color = if (MaterialTheme.colorScheme.background == Color(0xFF0B0F0E)) LogSurfaceDark else LogSurfaceLight,
-        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -2364,9 +2384,9 @@ private fun SettingsToolRow(label: String, detail: String, icon: ImageVector, on
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(">", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+        Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -2416,7 +2436,8 @@ private fun EntityList(
     }
     Surface(
         modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -2531,19 +2552,20 @@ private fun WarningRow(
     onChange: (Boolean) -> Unit,
 ) {
     Surface(
-        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
-        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(Icons.Outlined.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
+            Icon(Icons.Outlined.Warning, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                Text(detail, style = MaterialTheme.typography.labelSmall)
             }
             Switch(checked = checked, onCheckedChange = onChange)
         }
@@ -2593,7 +2615,11 @@ private fun Selector(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun Metric(label: String, value: String, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier, colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
         Column(Modifier.padding(16.dp)) {
             Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
             Text(label, style = MaterialTheme.typography.labelLarge)
@@ -2604,7 +2630,8 @@ private fun Metric(label: String, value: String, modifier: Modifier = Modifier) 
 @Composable
 private fun ProgressMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.small,
         modifier = modifier,
     ) {
@@ -2624,10 +2651,22 @@ private fun SectionCard(
     selected: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    OutlinedCard(
+    val colors = if (selected) {
+        CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+    } else {
+        CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+    ElevatedCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(6.dp),
-        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = MaterialTheme.shapes.large,
+        colors = colors,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = if (selected) 2.dp else 0.dp),
     ) {
         Column(
             modifier = Modifier.padding(if (selected) 12.dp else 11.dp),
@@ -2641,14 +2680,15 @@ private fun SectionCard(
 private fun SectionHeader(title: String, detail: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+        Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun SelectableBlock(text: String) {
     Surface(
-        color = if (MaterialTheme.colorScheme.background == Color(0xFF0B0F0E)) LogSurfaceDark else LogSurfaceLight,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         shape = MaterialTheme.shapes.small,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -2670,11 +2710,11 @@ private fun CopyableBlock(
     val clipboard = LocalClipboardManager.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            OutlinedButton(
+            FilledTonalButton(
                 onClick = { clipboard.setText(AnnotatedString(text)) },
                 modifier = Modifier.testTag(copyButtonTag),
             ) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                Icon(Icons.Outlined.ContentCopy, contentDescription = copyContentDescription)
                 Spacer(Modifier.width(8.dp))
                 Text("Copy")
             }
@@ -2696,7 +2736,7 @@ private fun StatusIcon(status: RunStatus) {
             RunStatus.SUCCESS -> MaterialTheme.colorScheme.primary
             RunStatus.WARNING -> MaterialTheme.colorScheme.tertiary
             RunStatus.FAILED, RunStatus.CANCELLED -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.secondary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
         },
         contentDescription = status.name,
     )

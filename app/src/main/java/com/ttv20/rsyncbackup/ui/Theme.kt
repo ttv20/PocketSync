@@ -1,49 +1,104 @@
 package com.ttv20.rsyncbackup.ui
 
 import android.app.Activity
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.ttv20.rsyncbackup.model.ThemePreference
 
-val SuccessColor = Color(0xFF2E7D32)
-val WarningColor = Color(0xFFB26A00)
-val DestructiveColor = Color(0xFFB3261E)
-val RouteColor = Color(0xFF006A6A)
-val LogSurfaceLight = Color(0xFFF1F5F3)
-val LogSurfaceDark = Color(0xFF171D1B)
-
 private val RsyncLightColorScheme = lightColorScheme(
-    primary = Color(0xFF006C6E),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFD6F4F2),
-    onPrimaryContainer = Color(0xFF002021),
-    secondary = Color(0xFF51605D),
-    tertiary = WarningColor,
-    surface = Color(0xFFFEFFFD),
-    surfaceVariant = Color(0xFFE3EAE7),
-    background = Color(0xFFF7FAF8),
-    error = DestructiveColor,
+    primary = Color(0xFF006A6D),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF9CF0F3),
+    onPrimaryContainer = Color(0xFF002020),
+    inversePrimary = Color(0xFF80D3D6),
+    secondary = Color(0xFF4A6363),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFCCE8E8),
+    onSecondaryContainer = Color(0xFF051F20),
+    tertiary = Color(0xFF4F5F7D),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFD7E3FF),
+    onTertiaryContainer = Color(0xFF091B36),
+    background = Color(0xFFF7FAF9),
+    onBackground = Color(0xFF191C1C),
+    surface = Color(0xFFF7FAF9),
+    onSurface = Color(0xFF191C1C),
+    surfaceVariant = Color(0xFFDAE5E4),
+    onSurfaceVariant = Color(0xFF3F4949),
+    surfaceTint = Color(0xFF006A6D),
+    inverseSurface = Color(0xFF2D3131),
+    inverseOnSurface = Color(0xFFEFF1F0),
+    error = Color(0xFFBA1A1A),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
+    outline = Color(0xFF6F7979),
+    outlineVariant = Color(0xFFBEC9C8),
+    scrim = Color(0xFF000000),
 )
 
 private val RsyncDarkColorScheme = darkColorScheme(
-    primary = Color(0xFF82D5D2),
+    primary = Color(0xFF80D3D6),
     onPrimary = Color(0xFF003738),
     primaryContainer = Color(0xFF004F51),
-    onPrimaryContainer = Color(0xFF9EF2EF),
-    secondary = Color(0xFFB7C9C4),
-    tertiary = Color(0xFFE7BF6B),
-    surface = Color(0xFF101413),
-    surfaceVariant = Color(0xFF3F4946),
-    background = Color(0xFF0B0F0E),
+    onPrimaryContainer = Color(0xFF9CF0F3),
+    inversePrimary = Color(0xFF006A6D),
+    secondary = Color(0xFFB0CCCC),
+    onSecondary = Color(0xFF1B3435),
+    secondaryContainer = Color(0xFF324B4B),
+    onSecondaryContainer = Color(0xFFCCE8E8),
+    tertiary = Color(0xFFB7C8EA),
+    onTertiary = Color(0xFF20304D),
+    tertiaryContainer = Color(0xFF374764),
+    onTertiaryContainer = Color(0xFFD7E3FF),
+    background = Color(0xFF101414),
+    onBackground = Color(0xFFE0E3E2),
+    surface = Color(0xFF101414),
+    onSurface = Color(0xFFE0E3E2),
+    surfaceVariant = Color(0xFF3F4949),
+    onSurfaceVariant = Color(0xFFBEC9C8),
+    surfaceTint = Color(0xFF80D3D6),
+    inverseSurface = Color(0xFFE0E3E2),
+    inverseOnSurface = Color(0xFF2D3131),
     error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    outline = Color(0xFF899392),
+    outlineVariant = Color(0xFF3F4949),
+    scrim = Color(0xFF000000),
+)
+
+private val RsyncShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
+
+private val RsyncTypography = Typography(
+    headlineSmall = Typography().headlineSmall.copy(
+        fontWeight = FontWeight.SemiBold,
+        lineHeight = 30.sp,
+    ),
+    titleLarge = Typography().titleLarge.copy(fontWeight = FontWeight.SemiBold),
+    titleMedium = Typography().titleMedium.copy(fontWeight = FontWeight.SemiBold),
+    labelLarge = Typography().labelLarge.copy(fontWeight = FontWeight.SemiBold),
 )
 
 @Composable
@@ -71,6 +126,8 @@ fun RsyncBackupTheme(
     }
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = RsyncTypography,
+        shapes = RsyncShapes,
         content = content,
     )
 }
