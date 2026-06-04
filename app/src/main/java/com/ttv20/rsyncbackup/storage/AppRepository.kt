@@ -14,6 +14,7 @@ import com.ttv20.rsyncbackup.model.RunProgressState
 import com.ttv20.rsyncbackup.model.RunStatus
 import com.ttv20.rsyncbackup.model.TargetRecord
 import com.ttv20.rsyncbackup.model.withImportedConfiguration
+import com.ttv20.rsyncbackup.model.withUpdatedSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,9 +40,10 @@ class AppRepository(
         } else {
             InitialData.appState(defaultExcludes)
         }
-        mutableState.value = removeAbandonedOnboardingDuplicates(
+        val recovered = removeAbandonedOnboardingDuplicates(
             recoverInterruptedRunningBackup(loaded),
         ).copy(runProgress = RunProgressState())
+        mutableState.value = recovered.withUpdatedSettings(recovered.settings)
         saveBlocking()
     }
 

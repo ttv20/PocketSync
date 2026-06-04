@@ -3,13 +3,17 @@
 package com.ttv20.rsyncbackup.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsClient
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -48,6 +52,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Error
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Settings
@@ -141,7 +146,10 @@ import com.ttv20.rsyncbackup.model.TailscaleStateMetadata
 import com.ttv20.rsyncbackup.model.ThemePreference
 import com.ttv20.rsyncbackup.model.requiresLan
 import com.ttv20.rsyncbackup.model.requiresTailscale
+import com.ttv20.rsyncbackup.model.effectiveTailscaleNodeName
+import com.ttv20.rsyncbackup.model.suggestedTailscaleNodeName
 import com.ttv20.rsyncbackup.model.toExportDocument
+import com.ttv20.rsyncbackup.model.withUpdatedSettings
 import com.ttv20.rsyncbackup.permissions.PermissionIntents
 import com.ttv20.rsyncbackup.permissions.PermissionStateReader
 import com.ttv20.rsyncbackup.scheduling.BackupScheduler
@@ -158,6 +166,7 @@ import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 private enum class Screen(val label: String, val icon: ImageVector) {
     Dashboard("Dashboard", Icons.Outlined.Dashboard),
@@ -1391,26 +1400,6 @@ private fun AppState.queueJobCount(): Int =
 private fun jobCountLabel(count: Int): String =
     "$count ${if (count == 1) "job" else "jobs"}"
 
-private fun suggestedTailscaleNodeName(phoneHostname: String): String {
-    val hostname = phoneHostname
-        .trim()
-        .lowercase(Locale.US)
-        .replace(Regex("[^a-z0-9-]+"), "-")
-        .trim('-')
-        .ifBlank { "android-phone" }
-    return "$hostname-rsync"
-}
-
-private fun effectiveTailscaleNodeName(state: AppState): String {
-    val suggested = suggestedTailscaleNodeName(state.settings.phoneHostname)
-    val stored = state.tailscale.nodeName.trim()
-    return when {
-        state.tailscale.isConfigured -> stored.ifBlank { suggested }
-        stored.isBlank() || stored == "android-rsync" || stored == "android-phone-rsync" -> suggested
-        else -> stored
-    }
-}
-
 private fun defaultTargetModeFor(target: TargetRecord, preferred: TargetMode? = null): TargetMode {
     if (preferred != null && preferred.unavailableReason(target) == null) return preferred
     return when {
@@ -1462,16 +1451,9 @@ private fun DashboardScreen(
     onStartOnboarding: (OnboardingStep) -> Unit,
 ) {
     val context = LocalContext.current
-    val readyCount = state.profiles.count { profile ->
-        ProfileValidator.validate(profile, state).none { it.severity == Severity.ERROR }
-    }
-    val warningCount = state.profiles.count { profile ->
-        ProfileValidator.validate(profile, state).any { it.severity == Severity.WARNING }
-    }
     val constraintSnapshot = remember(context, state.settings.selectedSsid, state.profiles) {
         AndroidConstraintSnapshotReader(context).read()
     }
-    val queueJobCount = state.queueJobCount()
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -1479,16 +1461,6 @@ private fun DashboardScreen(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item {
-            CompactMetricStrip(
-                metrics = listOf(
-                    MetricSpec("Up to date", readyCount.toString(), Icons.Outlined.CheckCircle, MetricTone.Success),
-                    MetricSpec("Warnings", warningCount.toString(), Icons.Outlined.Warning, MetricTone.Warning),
-                    MetricSpec("Queue", queueJobCount.toString(), Icons.Outlined.Sync, MetricTone.Route),
-                    MetricSpec("Targets", state.targets.size.toString(), Icons.Outlined.Storage, MetricTone.Neutral),
-                ),
-            )
-        }
         item {
             SectionHeader("Dashboard")
         }
@@ -1626,52 +1598,6 @@ private enum class MetricTone {
     Destructive,
     Route,
     Neutral,
-}
-
-private data class MetricSpec(
-    val label: String,
-    val value: String,
-    val icon: ImageVector,
-    val tone: MetricTone,
-)
-
-@Composable
-private fun CompactMetricStrip(metrics: List<MetricSpec>) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        metrics.forEach { metric ->
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                shape = MaterialTheme.shapes.large,
-                tonalElevation = 1.dp,
-                shadowElevation = 0.dp,
-                modifier = Modifier.weight(1f),
-            ) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 9.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            metric.icon,
-                            contentDescription = null,
-                            tint = toneColor(metric.tone),
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(metric.value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    }
-                    Text(
-                        metric.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -3196,7 +3122,7 @@ private fun TailscaleScreen(state: AppState, repository: AppRepository, secretSt
                 )
                 else -> FeedbackBanner(
                     title = "Tailscale is not connected",
-                    detail = "Paste an auth key and connect only if this target needs a Tailscale route.",
+                    detail = "Paste an auth key or sign in with the browser only if this target needs a Tailscale route.",
                     tone = MetricTone.Warning,
                 )
             }
@@ -3217,7 +3143,7 @@ private fun TailscaleScreen(state: AppState, repository: AppRepository, secretSt
                     .fillMaxWidth()
                     .testTag("tailscale-auth-key-field"),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     enabled = !busy && nodeName.isNotBlank() && authKey.isNotBlank(),
                     modifier = Modifier.testTag("tailscale-authenticate-button"),
@@ -3266,6 +3192,65 @@ private fun TailscaleScreen(state: AppState, repository: AppRepository, secretSt
                     Icon(Icons.Outlined.CheckCircle, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Connect Tailscale")
+                }
+                OutlinedButton(
+                    enabled = !busy && nodeName.isNotBlank(),
+                    modifier = Modifier.testTag("tailscale-browser-login-button"),
+                    onClick = {
+                        busy = true
+                        message = "Waiting for Tailscale login in browser"
+                        val requestedNodeName = nodeName.trim().ifBlank { defaultNodeName }
+                        val browserOpened = AtomicBoolean(false)
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                TailscaleManager(context, secretStore).authenticateWithBrowser(
+                                    nodeName = requestedNodeName,
+                                ) { authUrl ->
+                                    if (browserOpened.compareAndSet(false, true)) {
+                                        scope.launch {
+                                            val opened = openUrlInUserBrowser(context, authUrl)
+                                            message = if (opened) {
+                                                "Complete Tailscale login in your browser"
+                                            } else {
+                                                "Could not open a browser for Tailscale login"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            val now = Instant.now().toString()
+                            repository.update { appState ->
+                                appState.copy(
+                                    tailscale = if (result.success) {
+                                        TailscaleStateMetadata(
+                                            isConfigured = true,
+                                            nodeName = requestedNodeName,
+                                            stateSecretAlias = result.stateSecretAlias,
+                                            lastLoginAt = now,
+                                            lastReachabilityTestAt = appState.tailscale.lastReachabilityTestAt,
+                                            lastError = null,
+                                            keyExpiryAdviceAcknowledged = appState.tailscale.keyExpiryAdviceAcknowledged,
+                                        )
+                                    } else {
+                                        appState.tailscale.copy(
+                                            nodeName = requestedNodeName,
+                                            lastError = browserLoginFailureMessage(result.output, browserOpened.get()),
+                                        )
+                                    },
+                                )
+                            }
+                            message = if (result.success) {
+                                "Connected as $requestedNodeName"
+                            } else {
+                                "Browser login failed"
+                            }
+                            busy = false
+                        }
+                    },
+                ) {
+                    Icon(Icons.Outlined.OpenInBrowser, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sign in with browser")
                 }
                 OutlinedButton(
                     enabled = !busy,
@@ -3653,12 +3638,12 @@ private fun SettingsScreen(
             ThemePreferenceSelector(settings.themePreference) { preference ->
                 val updated = settings.copy(themePreference = preference)
                 settings = updated
-                repository.update { it.copy(settings = updated) }
+                repository.update { it.withUpdatedSettings(updated) }
             }
             OutlinedTextField(settings.phoneHostname, { settings = settings.copy(phoneHostname = it) }, label = { Text("Phone hostname") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(settings.selectedSsid.orEmpty(), { settings = settings.copy(selectedSsid = it.ifBlank { null }) }, label = { Text("Selected SSID") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(settings.logRetentionLimit.toString(), { settings = settings.copy(logRetentionLimit = it.toIntOrNull() ?: settings.logRetentionLimit) }, label = { Text("Log retention") }, modifier = Modifier.fillMaxWidth())
-            Button(onClick = { repository.update { it.copy(settings = settings) } }) {
+            Button(onClick = { repository.update { it.withUpdatedSettings(settings) } }) {
                 Icon(Icons.Outlined.Save, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Save")
@@ -4197,6 +4182,79 @@ private fun conciseFeedbackMessage(text: String, maxLength: Int = 260): String {
         if (meaningfulLine.length > maxLength) "$value..." else value
     }
 }
+
+private val UrlRedactionRegex = Regex("""https?://\S+""")
+private val PreferredCustomTabsPackages = listOf(
+    "com.android.chrome",
+    "com.google.android.apps.chrome",
+    "com.chrome.beta",
+    "com.chrome.dev",
+    "com.chrome.canary",
+    "com.brave.browser",
+    "com.microsoft.emmx",
+    "com.kiwibrowser.browser",
+    "org.mozilla.firefox",
+    "org.mozilla.fenix",
+    "com.sec.android.app.sbrowser",
+)
+private val NonBrowserCustomTabsPackages = setOf(
+    "fe.linksheet",
+    "fe.linksheet.nightly",
+)
+
+private fun openUrlInUserBrowser(context: Context, url: String): Boolean {
+    val uri = Uri.parse(url)
+    val customTabsPackage = customTabsBrowserPackage(context)
+    return try {
+        val customTabsIntent = CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .build()
+        if (customTabsPackage != null) {
+            customTabsIntent.intent.setPackage(customTabsPackage)
+        }
+        customTabsIntent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        customTabsIntent.launchUrl(context, uri)
+        true
+    } catch (error: ActivityNotFoundException) {
+        openUrlWithViewIntent(context, uri, customTabsPackage)
+    } catch (error: IllegalArgumentException) {
+        openUrlWithViewIntent(context, uri, customTabsPackage)
+    } catch (error: RuntimeException) {
+        openUrlWithViewIntent(context, uri, customTabsPackage)
+    }
+}
+
+private fun customTabsBrowserPackage(context: Context): String? =
+    CustomTabsClient.getPackageName(context, PreferredCustomTabsPackages)
+        ?: CustomTabsClient.getPackageName(context, null)
+            ?.takeUnless { it in NonBrowserCustomTabsPackages || it.startsWith("fe.linksheet.") }
+
+private fun openUrlWithViewIntent(context: Context, uri: Uri, packageName: String?): Boolean =
+    runCatching {
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (packageName != null) {
+            intent.setPackage(packageName)
+        }
+        context.startActivity(intent)
+    }.isSuccess
+
+private fun browserLoginFailureMessage(output: String, browserOpened: Boolean): String {
+    val sanitizedOutput = redactUrls(output)
+    return when {
+        sanitizedOutput.contains("timed out", ignoreCase = true) ->
+            "Tailscale browser login timed out before authorization completed."
+        !browserOpened && sanitizedOutput.isBlank() ->
+            "Tailscale did not provide a browser login URL."
+        sanitizedOutput.isBlank() ->
+            "Tailscale browser login failed before authorization completed."
+        else -> conciseFeedbackMessage(sanitizedOutput)
+    }
+}
+
+private fun redactUrls(text: String): String =
+    UrlRedactionRegex.replace(text, "[redacted-url]")
 
 private fun friendlyTailscaleError(error: String): String =
     when {

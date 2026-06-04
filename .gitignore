@@ -1,4 +1,5 @@
 .gradle/
+.a5c/
 .gradle-cache/
 .kotlin/
 .go-cache/

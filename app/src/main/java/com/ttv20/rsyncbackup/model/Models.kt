@@ -2,6 +2,11 @@ package com.ttv20.rsyncbackup.model
 
 import kotlinx.serialization.Serializable
 import java.time.Instant
+import java.util.Locale
+
+private const val DEFAULT_PHONE_HOSTNAME = "android-phone"
+private const val LEGACY_TAILSCALE_NODE_NAME = "android-rsync"
+private const val DEFAULT_TAILSCALE_NODE_NAME = "$DEFAULT_PHONE_HOSTNAME-rsync"
 
 @Serializable
 data class AppState(
@@ -18,7 +23,7 @@ data class AppState(
 
 @Serializable
 data class GlobalSettings(
-    val phoneHostname: String = "android-phone",
+    val phoneHostname: String = DEFAULT_PHONE_HOSTNAME,
     val logRetentionLimit: Int = 20,
     val selectedSsid: String? = null,
     val exactAlarmFallbackEnabled: Boolean = true,
@@ -50,7 +55,7 @@ data class GlobalSshKeySettings(
 @Serializable
 data class TailscaleStateMetadata(
     val isConfigured: Boolean = false,
-    val nodeName: String = "android-rsync",
+    val nodeName: String = LEGACY_TAILSCALE_NODE_NAME,
     val stateSecretAlias: String? = null,
     val lastLoginAt: String? = null,
     val lastReachabilityTestAt: String? = null,
@@ -108,6 +113,66 @@ enum class TargetMode {
     LAN_FIRST_TAILSCALE_FALLBACK,
     TAILSCALE_FIRST_LAN_FALLBACK,
     TAILSCALE_ONLY,
+}
+
+fun suggestedTailscaleNodeName(phoneHostname: String): String {
+    val hostname = phoneHostname
+        .trim()
+        .lowercase(Locale.US)
+        .replace(Regex("[^a-z0-9-]+"), "-")
+        .trim('-')
+        .ifBlank { DEFAULT_PHONE_HOSTNAME }
+    return "$hostname-rsync"
+}
+
+fun effectiveTailscaleNodeName(state: AppState): String {
+    val suggested = suggestedTailscaleNodeName(state.settings.phoneHostname)
+    val stored = state.tailscale.nodeName.trim()
+    return when {
+        state.tailscale.isConfigured -> stored.ifBlank { suggested }
+        state.tailscale.shouldUseSuggestedNodeName(state.settings.phoneHostname) -> suggested
+        else -> stored
+    }
+}
+
+fun AppState.withUpdatedSettings(settings: GlobalSettings): AppState =
+    copy(
+        settings = settings,
+        tailscale = tailscale.withSuggestedNodeName(
+            previousPhoneHostname = this.settings.phoneHostname,
+            phoneHostname = settings.phoneHostname,
+        ),
+    )
+
+fun AppState.withDetectedPhoneHostname(deviceHostname: String?): AppState {
+    val detected = deviceHostname?.trim().orEmpty()
+    val current = settings.phoneHostname.trim()
+    val nextSettings = if (detected.isNotBlank() && (current.isBlank() || current == DEFAULT_PHONE_HOSTNAME)) {
+        settings.copy(phoneHostname = detected)
+    } else {
+        settings
+    }
+    return withUpdatedSettings(nextSettings)
+}
+
+private fun TailscaleStateMetadata.withSuggestedNodeName(
+    previousPhoneHostname: String,
+    phoneHostname: String,
+): TailscaleStateMetadata {
+    if (isConfigured) return this
+    return if (shouldUseSuggestedNodeName(previousPhoneHostname)) {
+        copy(nodeName = suggestedTailscaleNodeName(phoneHostname))
+    } else {
+        this
+    }
+}
+
+private fun TailscaleStateMetadata.shouldUseSuggestedNodeName(phoneHostname: String): Boolean {
+    val stored = nodeName.trim()
+    return stored.isBlank() ||
+        stored == LEGACY_TAILSCALE_NODE_NAME ||
+        stored == DEFAULT_TAILSCALE_NODE_NAME ||
+        stored == suggestedTailscaleNodeName(phoneHostname)
 }
 
 @Serializable

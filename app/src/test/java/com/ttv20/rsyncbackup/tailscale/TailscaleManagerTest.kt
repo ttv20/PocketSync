@@ -50,4 +50,18 @@ class TailscaleManagerTest {
             restored.deleteRecursively()
         }
     }
+
+    @Test
+    fun extractsTailscaleBrowserAuthUrlFromHelperLogLine() {
+        val line = "2026/06/04 12:00:00 To start this tsnet server, restart with TS_AUTHKEY set, or go to: https://login.tailscale.com/a/example"
+
+        assertEquals("https://login.tailscale.com/a/example", TailscaleManager.extractTailscaleAuthUrl(line))
+    }
+
+    @Test
+    fun ignoresNonAuthUrlsInHelperOutput() {
+        val line = "tsnet status state=Running selfIPs=100.64.0.1"
+
+        assertEquals(null, TailscaleManager.extractTailscaleAuthUrl(line))
+    }
 }

@@ -24,6 +24,7 @@ class TailscaleManager(
     private val secretStore: SecretStore,
     private val nativeBinaryManager: NativeBinaryManager = NativeBinaryManager(context),
     private val timeoutSeconds: Long = 60,
+    private val browserLoginTimeoutSeconds: Long = 300,
 ) {
     fun authenticate(nodeName: String, authKey: String): TailscaleCommandResult {
         clearPlainState()
@@ -39,6 +40,39 @@ class TailscaleManager(
                 "--up",
             ),
             authKey = authKey,
+        )
+        return if (result.success) {
+            persistState(STATE_SECRET_ALIAS)
+            clearPlainState()
+            result.copy(stateSecretAlias = STATE_SECRET_ALIAS)
+        } else {
+            clearPlainState()
+            result
+        }
+    }
+
+    fun authenticateWithBrowser(nodeName: String, onAuthUrl: (String) -> Unit): TailscaleCommandResult {
+        clearPlainState()
+        stateDir().mkdirs()
+        val loginTimeoutSeconds = maxOf(timeoutSeconds, browserLoginTimeoutSeconds)
+        val seenAuthUrls = linkedSetOf<String>()
+        val result = runHelper(
+            args = listOf(
+                "--state",
+                stateDir().absolutePath,
+                "--hostname",
+                nodeName,
+                "--timeout",
+                "${loginTimeoutSeconds}s",
+                "--up",
+            ),
+            timeoutSeconds = loginTimeoutSeconds,
+            onOutputLine = { line ->
+                val authUrl = extractTailscaleAuthUrl(line)
+                if (authUrl != null && seenAuthUrls.add(authUrl)) {
+                    onAuthUrl(authUrl)
+                }
+            },
         )
         return if (result.success) {
             persistState(STATE_SECRET_ALIAS)
@@ -117,7 +151,12 @@ class TailscaleManager(
 
     private fun stateDir(): File = File(context.filesDir, "tailscale-state")
 
-    private fun runHelper(args: List<String>, authKey: String? = null): TailscaleCommandResult {
+    private fun runHelper(
+        args: List<String>,
+        authKey: String? = null,
+        timeoutSeconds: Long = this.timeoutSeconds,
+        onOutputLine: ((String) -> Unit)? = null,
+    ): TailscaleCommandResult {
         val nativeInstall = nativeBinaryManager.ensureInstalled()
         if (!nativeInstall.isComplete) {
             return TailscaleCommandResult(
@@ -145,27 +184,47 @@ class TailscaleManager(
                 )
             }
         process.outputStream.close()
+        val outputLock = Any()
+        val output = StringBuilder()
+        val outputReader = Thread({
+            process.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    synchronized(outputLock) {
+                        output.append(line).append('\n')
+                    }
+                    onOutputLine?.invoke(line)
+                }
+            }
+        }, "tailscale-helper-output").apply {
+            isDaemon = true
+            start()
+        }
         val finished = process.waitFor(timeoutSeconds + 10, TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
+            outputReader.join(1_000)
             Log.w(TAG, "Tailscale helper timed out: ${args.joinToString(" ")}")
+            val capturedOutput = synchronized(outputLock) { output.toString().trim() }
             return TailscaleCommandResult(
                 success = false,
                 exitCode = null,
-                output = "Tailscale helper timed out",
+                output = listOf(capturedOutput, "Tailscale helper timed out")
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n"),
             )
         }
-        val output = process.inputStream.bufferedReader().readText().trim()
+        outputReader.join(1_000)
+        val outputText = synchronized(outputLock) { output.toString().trim() }
         val exitCode = process.exitValue()
         if (exitCode == 0) {
-            Log.i(TAG, "Tailscale helper succeeded: ${output.take(MAX_LOG_OUTPUT)}")
+            Log.i(TAG, "Tailscale helper succeeded: ${outputText.take(MAX_LOG_OUTPUT)}")
         } else {
-            Log.w(TAG, "Tailscale helper failed exit=$exitCode: ${output.take(MAX_LOG_OUTPUT)}")
+            Log.w(TAG, "Tailscale helper failed exit=$exitCode: ${outputText.take(MAX_LOG_OUTPUT)}")
         }
         return TailscaleCommandResult(
             success = exitCode == 0,
             exitCode = exitCode,
-            output = output,
+            output = outputText,
         )
     }
 
@@ -173,6 +232,18 @@ class TailscaleManager(
         private const val TAG = "PocketBackupTailscale"
         private const val MAX_LOG_OUTPUT = 4000
         const val STATE_SECRET_ALIAS = "tailscale-state"
+        private val HTTP_URL_PATTERN = Regex("""https?://\S+""")
+
+        internal fun extractTailscaleAuthUrl(line: String): String? {
+            if (!line.contains("go to:", ignoreCase = true) &&
+                !line.contains("login.tailscale.com", ignoreCase = true)
+            ) {
+                return null
+            }
+            return HTTP_URL_PATTERN.find(line)
+                ?.value
+                ?.trimEnd('.', ',', ')', ']', '"', '\'')
+        }
 
         fun archiveDirectory(directory: File): ByteArray {
             val root = directory.canonicalFile

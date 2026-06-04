@@ -2,6 +2,8 @@ package com.ttv20.rsyncbackup
 
 import android.app.Application
 import com.ttv20.rsyncbackup.backup.NativeBinaryManager
+import com.ttv20.rsyncbackup.model.withDetectedPhoneHostname
+import com.ttv20.rsyncbackup.settings.DeviceHostnameReader
 import com.ttv20.rsyncbackup.storage.AndroidKeystoreSecretStore
 import com.ttv20.rsyncbackup.storage.AppRepository
 import com.ttv20.rsyncbackup.storage.SecretStore
@@ -21,6 +23,9 @@ class RsyncBackupApplication : Application() {
             .use { it.readText().trimEnd() }
         repository = AppRepository(File(filesDir, "app-state.json"), defaultExcludes).also {
             it.loadBlocking()
+            DeviceHostnameReader.read(this)?.let { deviceHostname ->
+                it.update { state -> state.withDetectedPhoneHostname(deviceHostname) }
+            }
         }
         secretStore = AndroidKeystoreSecretStore(this)
         NativeBinaryManager(this).ensureInstalled()
