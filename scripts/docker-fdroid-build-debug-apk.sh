@@ -6,6 +6,21 @@ docker_cmd="${DOCKER:-docker}"
 android_home="${ANDROID_HOME:-/home/circleci/android-sdk}"
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gradle_cache="${RSYNC_BACKUP_GRADLE_CACHE:-$project_dir/.gradle-cache}"
+env_args=()
+
+if [[ -z "${FDROID_NATIVE_SOURCE_REFS:-}" ]]; then
+  FDROID_NATIVE_SOURCE_REFS="$("$project_dir/scripts/fdroid-native-source-refs.sh")"
+  export FDROID_NATIVE_SOURCE_REFS
+fi
+
+for env_name in \
+  FDROID_NATIVE_SOURCE_REFS \
+  GO_ANDROID_IMAGE
+do
+  if [[ -n "${!env_name:-}" ]]; then
+    env_args+=("-e" "$env_name=${!env_name}")
+  fi
+done
 
 mkdir -p "$gradle_cache"
 
@@ -18,6 +33,7 @@ $docker_cmd run --rm \
   -e HOME=/workspace \
   -e GRADLE_USER_HOME=/workspace/.gradle-cache \
   -e RSYNC_BACKUP_ANDROID_IMAGE="$image" \
+  "${env_args[@]}" \
   -v "$project_dir":/workspace \
   -w /workspace \
   "$image" \

@@ -39,6 +39,26 @@ verify_metadata() {
     fi
   done
 
+  if grep -q 'TODO-tagged-release-commit\|TODO\|pending-source-build' "$metadata"; then
+    printf 'F-Droid metadata still contains a placeholder.\n' >&2
+    exit 1
+  fi
+
+  for required in \
+    '^RepoType: git$' \
+    '^Repo: https://codeberg.org/ttv20/PocketBackup.git$' \
+    '^    scandelete:$' \
+    '^    build: |-$' \
+    '^    output: app/build/outputs/apk/fdroidRelease/app-fdroidRelease-unsigned.apk$' \
+    '^CurrentVersion:' \
+    '^CurrentVersionCode:'
+  do
+    if ! grep -q "$required" "$metadata"; then
+      printf 'F-Droid metadata is missing required draft pattern: %s\n' "$required" >&2
+      exit 1
+    fi
+  done
+
   printf 'F-Droid metadata draft check passed.\n'
 }
 

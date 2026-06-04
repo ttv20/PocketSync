@@ -8,6 +8,10 @@ val releaseStoreFile = providers.environmentVariable("POCKETSYNC_RELEASE_STORE_F
 val releaseStorePassword = providers.environmentVariable("POCKETSYNC_RELEASE_STORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("POCKETSYNC_RELEASE_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("POCKETSYNC_RELEASE_KEY_PASSWORD").orNull
+val pocketSyncVersionCode = providers.environmentVariable("POCKETSYNC_VERSION_CODE")
+    .orElse(providers.gradleProperty("pocketsync.versionCode"))
+val pocketSyncVersionName = providers.environmentVariable("POCKETSYNC_VERSION_NAME")
+    .orElse(providers.gradleProperty("pocketsync.versionName"))
 val hasReleaseSigning = listOf(
     releaseStoreFile,
     releaseStorePassword,
@@ -25,11 +29,8 @@ android {
         applicationId = "com.ttv20.rsyncbackup"
         minSdk = 29
         targetSdk = 36
-        versionCode = providers.environmentVariable("POCKETSYNC_VERSION_CODE")
-            .map { it.toInt() }
-            .getOrElse(1)
-        versionName = providers.environmentVariable("POCKETSYNC_VERSION_NAME")
-            .getOrElse("0.1.0")
+        versionCode = pocketSyncVersionCode.map { it.toInt() }.getOrElse(1)
+        versionName = pocketSyncVersionName.getOrElse("0.1.0")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -149,28 +150,45 @@ dependencies {
 val generateFdroidNativeManifest by tasks.registering {
     val outputDir = layout.buildDirectory.dir("generated/fdroidNativeManifest/assets/native")
     val sourceRefs = providers.environmentVariable("FDROID_NATIVE_SOURCE_REFS")
-        .orElse("pending-source-build")
     val androidImage = providers.environmentVariable("RSYNC_BACKUP_ANDROID_IMAGE")
         .orElse("cimg/android:2025.12")
     val nativeImage = providers.environmentVariable("GO_ANDROID_IMAGE")
         .orElse("golang:1.26-bookworm")
+    val sourceRefsFile = fdroidNativeAssetsDir.file("native/arm64-v8a/fdroid-native-source-refs.txt").asFile
 
-    inputs.property("sourceRefs", sourceRefs)
+    inputs.property("sourceRefs", sourceRefs.orNull ?: "")
+    inputs.file(sourceRefsFile).optional()
     inputs.property("androidImage", androidImage)
     inputs.property("nativeImage", nativeImage)
     outputs.dir(outputDir)
 
     doLast {
         val manifest = outputDir.get().asFile.resolve("fdroid-native-manifest.json")
+        val sourceRefsValue = sourceRefs.orNull
+            ?: sourceRefsFile.takeIf { it.isFile }?.readText()?.trim()
+            ?: "pending-source-build"
+        fun jsonEscape(value: String): String = buildString {
+            value.forEach { char ->
+                when (char) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> append(char)
+                }
+            }
+        }
+
         manifest.parentFile.mkdirs()
         manifest.writeText(
             """
             {
               "schemaVersion": 1,
               "variant": "fdroidRelease",
-              "nativeSourceRefs": "${sourceRefs.get()}",
-              "androidBuildImage": "${androidImage.get()}",
-              "nativeBuildImage": "${nativeImage.get()}",
+              "nativeSourceRefs": "${jsonEscape(sourceRefsValue)}",
+              "androidBuildImage": "${jsonEscape(androidImage.get())}",
+              "nativeBuildImage": "${jsonEscape(nativeImage.get())}",
               "toolchainVersions": {},
               "outputHashes": []
             }
@@ -218,8 +236,8 @@ val checkFdroidGeneratedNative by tasks.registering {
             .map { projectDirPath.relativize(it.toPath()).toString() }
         if (missing.isNotEmpty()) {
             throw GradleException(
-                "Missing generated F-Droid native assets:\n" +
-                    missing.joinToString(separator = "\n") { "  $it" } +
+                    "Missing generated F-Droid native assets:\n" +
+                        missing.joinToString(separator = "\n") { "  $it" } +
                     "\nRun ./scripts/docker-fdroid-build-native.sh --from-source before building fdroidDebug or fdroidRelease.",
             )
         }

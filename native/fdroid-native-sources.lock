@@ -11,4 +11,4 @@ termux-package openssh
 termux-package zstd
 termux-arch aarch64
 
-tsnet-helper path native/tsnet-helper go.mod go.sum
+tsnet-helper path native/tsnet-helper go.mod go.sum main.go third_party/web-client-prebuilt-stub

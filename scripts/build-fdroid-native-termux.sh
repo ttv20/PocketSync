@@ -13,6 +13,40 @@ out_dir="$asset_root/native/arm64-v8a"
 jni_out_dir="$project_dir/native/fdroid-out/jniLibs/arm64-v8a"
 docker_cmd="${DOCKER:-docker}"
 termux_prefix="data/data/com.termux/files/usr"
+termux_build_mode="${FDROID_NATIVE_TERMUX_MODE:-docker}"
+
+usage() {
+  printf 'usage: %s [--termux-mode docker|host]\n' "$0" >&2
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --termux-mode)
+      if [ -z "${2:-}" ]; then
+        usage
+        exit 2
+      fi
+      termux_build_mode="$2"
+      shift 2
+      ;;
+    --termux-mode=*)
+      termux_build_mode="${1#*=}"
+      shift
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+case "$termux_build_mode" in
+  docker|host) ;;
+  *)
+    printf 'Unsupported F-Droid native Termux build mode: %s\n' "$termux_build_mode" >&2
+    exit 2
+    ;;
+esac
 
 read_lock_value() {
   local key="$1"
@@ -24,6 +58,7 @@ termux_repo_url="$(printf '%s\n' "$termux_repo_line" | awk '{ print $2 }')"
 termux_commit="$(printf '%s\n' "$termux_repo_line" | awk '{ print $3 }')"
 builder_image="${FDROID_TERMUX_BUILDER_IMAGE:-$(read_lock_value termux-builder-image)}"
 termux_arch="$(read_lock_value termux-arch)"
+tsnet_ref="$(read_lock_value tsnet-helper)"
 mapfile -t root_packages < <(awk '$1 == "termux-package" { print $2 }' "$lock_file")
 
 if [ -z "$termux_repo_url" ] || [ -z "$termux_commit" ] || [ -z "$termux_arch" ]; then
@@ -47,15 +82,42 @@ fi
 mkdir -p "$termux_output_dir" "$termux_root_dir" "$out_dir/lib" "$jni_out_dir"
 
 if [ "${FDROID_NATIVE_SKIP_TERMUX_BUILD:-0}" != "1" ]; then
-  "$docker_cmd" run --rm \
-    --user root \
-    --privileged \
-    --device /dev/fuse \
-    -v "$repo_dir":/home/builder/termux-packages \
-    -v "$termux_output_dir":/home/builder/termux-output \
-    -w /home/builder/termux-packages \
-    "$builder_image" \
-    bash -lc "chown -R builder:builder /home/builder/termux-packages /home/builder/termux-output && runuser -u builder -- bash -lc './build-package.sh -a \"$termux_arch\" -o /home/builder/termux-output ${root_packages[*]} && { cp -a output/*.deb /home/builder/termux-output/ 2>/dev/null || true; }'"
+  case "$termux_build_mode" in
+    docker)
+      "$docker_cmd" run --rm \
+        --user root \
+        --privileged \
+        --device /dev/fuse \
+        -v "$repo_dir":/home/builder/termux-packages \
+        -v "$termux_output_dir":/home/builder/termux-output \
+        -w /home/builder/termux-packages \
+        "$builder_image" \
+        bash -lc "chown -R builder:builder /home/builder/termux-packages /home/builder/termux-output && runuser -u builder -- bash -lc './build-package.sh -a \"$termux_arch\" -o /home/builder/termux-output ${root_packages[*]} && { cp -a output/*.deb /home/builder/termux-output/ 2>/dev/null || true; }'"
+      ;;
+    host)
+      if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -z "${NDK:-}" ]; then
+        export NDK="$ANDROID_NDK_HOME"
+      elif [ -n "${ANDROID_NDK_ROOT:-}" ] && [ -z "${NDK:-}" ]; then
+        export NDK="$ANDROID_NDK_ROOT"
+      elif [ -n "${ANDROID_NDK:-}" ] && [ -z "${NDK:-}" ]; then
+        export NDK="$ANDROID_NDK"
+      fi
+      if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -z "${ANDROID_HOME:-}" ]; then
+        export ANDROID_HOME="$ANDROID_SDK_ROOT"
+      fi
+      if [ -z "${NDK:-}" ]; then
+        (
+          cd "$repo_dir"
+          ./scripts/setup-android-sdk.sh
+        )
+      fi
+      (
+        cd "$repo_dir"
+        ./build-package.sh -a "$termux_arch" -o "$termux_output_dir" "${root_packages[@]}"
+        cp -a output/*.deb "$termux_output_dir"/ 2>/dev/null || true
+      )
+      ;;
+  esac
 fi
 
 extract_deb() {
@@ -124,11 +186,18 @@ done < <(
   find "$prefix/lib" \( -type f -o -type l \) \( -name '*.so' -o -name '*.so.*' \) | sort
 )
 
-for docs_package in rsync openssh openssl zlib zstd liblz4 libpopt xxhash libandroid-glob libandroid-support libiconv libedit ldns ncurses libresolv-wrapper; do
-  copy_if_exists "$prefix/share/doc/$docs_package/copyright" "$out_dir/termux-docs/$docs_package/copyright"
-done
+if [ -d "$prefix/share/doc" ]; then
+  while IFS= read -r doc_file; do
+    rel="${doc_file#$prefix/share/doc/}"
+    copy_if_exists "$doc_file" "$out_dir/termux-docs/$rel"
+  done < <(find "$prefix/share/doc" -type f -name copyright | sort)
+fi
 
-"$project_dir/scripts/build-tsnet-helper.sh"
+if [ "$termux_build_mode" = "host" ]; then
+  TSNET_HELPER_BUILD_MODE=host "$project_dir/scripts/build-tsnet-helper.sh"
+else
+  "$project_dir/scripts/build-tsnet-helper.sh"
+fi
 copy_if_exists "$project_dir/native/out/arm64-v8a/tsnet-nc" "$out_dir/tsnet-nc"
 chmod 0755 "$out_dir/tsnet-nc"
 
@@ -193,12 +262,24 @@ fi
 {
   printf 'Termux package source build for PocketBackup F-Droid native assets\n'
   printf 'termux-packages: %s %s\n' "$termux_repo_url" "$termux_commit"
+  printf 'termux-builder-image: %s\n' "$builder_image"
   printf 'termux-arch: %s\n\n' "$termux_arch"
   for package in "${root_packages[@]}"; do
     printf 'root-package: %s\n' "$package"
   done
+  printf '\ntsnet-helper: %s\n' "$tsnet_ref"
+} > "$out_dir/fdroid-native-source-refs.txt"
+
+{
+  cat "$out_dir/fdroid-native-source-refs.txt"
   printf '\n'
-  find "$out_dir" -type f -print0 | sort -z | xargs -0 sha256sum
+  (
+    cd "$out_dir"
+    find . -type f ! -name fdroid-native-sha256.txt -print0 |
+      sort -z |
+      xargs -0 sha256sum |
+      sed 's#  [.]\/#  #'
+  )
 } > "$out_dir/fdroid-native-sha256.txt"
 
 printf 'Generated F-Droid native assets in %s\n' "$asset_root"

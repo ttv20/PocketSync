@@ -8,6 +8,11 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gradle_cache="${RSYNC_BACKUP_GRADLE_CACHE:-$project_dir/.gradle-cache}"
 env_args=()
 
+if [[ -z "${FDROID_NATIVE_SOURCE_REFS:-}" ]]; then
+  FDROID_NATIVE_SOURCE_REFS="$("$project_dir/scripts/fdroid-native-source-refs.sh")"
+  export FDROID_NATIVE_SOURCE_REFS
+fi
+
 for env_name in \
   POCKETSYNC_VERSION_CODE \
   POCKETSYNC_VERSION_NAME \

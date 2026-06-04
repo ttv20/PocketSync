@@ -3,10 +3,11 @@ Categories:
   - System
 License: MIT
 AuthorName: ttv20
-SourceCode: https://codeberg.org/ttv20/PocketSync
-IssueTracker: https://codeberg.org/ttv20/PocketSync/issues
+SourceCode: https://codeberg.org/ttv20/PocketBackup
+IssueTracker: https://codeberg.org/ttv20/PocketBackup/issues
+Changelog: https://codeberg.org/ttv20/PocketBackup/releases
 Name: PocketBackup
-Summary: Android backups to your own server with rsync, SSH, and built-in Tailscale client
+Summary: Backups to your own server with rsync, SSH, and optional Tailscale
 Description: |-
   PocketBackup backs up Android shared storage to a user-controlled server with
   rsync over SSH. Tailscale connectivity is optional; LAN-only profiles can be
@@ -19,15 +20,45 @@ AntiFeatures:
   NonFreeNet:
     en-US: Optional Tailscale use connects to Tailscale coordination services. LAN-only backup does not require Tailscale.
 
+RepoType: git
+Repo: https://codeberg.org/ttv20/PocketBackup.git
+
+MaintainerNotes: |-
+  The fdroidRelease build generates native rsync/OpenSSH/zstd assets from the
+  pinned Termux package recipes in native/fdroid-native-sources.lock, then
+  builds the Android tsnet helper from native/tsnet-helper/go.mod and go.sum.
+  app/src/sideload contains upstream sideload-release prebuilts and is removed
+  from this build before scanning.
+
 Builds:
-  - versionName: 0.1.0
-    versionCode: 1
-    commit: TODO-tagged-release-commit
+  - versionName: "0.90"
+    versionCode: 7
+    commit: v0.90
     subdir: .
-    gradle:
-      - fdroidRelease
+    timeout: 7200
+    ndk: 29.0.14206865
+    sudo: |-
+      mkdir -p /data
+      chown vagrant:vagrant /data
+    scandelete:
+      - app/src/sideload
     prebuild: |-
       ./scripts/fdroid-scan-source.sh
+    build: |-
+      export ANDROID_HOME=$$SDK$$
+      export ANDROID_SDK_ROOT=$$SDK$$
+      export ANDROID_NDK_HOME=$$NDK$$
+      export ANDROID_NDK_ROOT=$$NDK$$
+      export NDK=$$NDK$$
+      export POCKETSYNC_VERSION_NAME=$$VERSION$$
+      export POCKETSYNC_VERSION_CODE=$$VERCODE$$
+      export FDROID_NATIVE_SOURCE_REFS="$(./scripts/fdroid-native-source-refs.sh)"
+      ./scripts/build-fdroid-native-termux.sh --termux-mode host
+      export GO_ANDROID_IMAGE="host-$(cd native/tsnet-helper && go env GOVERSION)"
+      /home/vagrant/gradlew-fdroid/gradlew-fdroid -p . --no-daemon -Ppocketsync.versionName=$$VERSION$$ -Ppocketsync.versionCode=$$VERCODE$$ assembleFdroidRelease
+    output: app/build/outputs/apk/fdroidRelease/app-fdroidRelease-unsigned.apk
 
 AutoUpdateMode: None
 UpdateCheckMode: None
+CurrentVersion: "0.90"
+CurrentVersionCode: 7
