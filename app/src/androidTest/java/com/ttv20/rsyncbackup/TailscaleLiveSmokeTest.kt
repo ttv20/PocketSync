@@ -97,7 +97,9 @@ class TailscaleLiveSmokeTest {
     }
 
     private fun openScreen(label: String) {
-        composeRule.onAllNodesWithText(label)[0].performClick()
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.requestScreenForTest(label)
+        }
         composeRule.waitForIdle()
     }
 

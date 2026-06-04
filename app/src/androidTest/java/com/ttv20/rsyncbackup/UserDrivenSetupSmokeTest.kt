@@ -44,6 +44,7 @@ class UserDrivenSetupSmokeTest {
         }
 
         openScreen("Servers")
+        openFirstServerEditor()
         replaceText("server-user-field", user)
         replaceText("server-lan-host-field", host)
         replaceText("server-port-field", port.toString())
@@ -57,6 +58,8 @@ class UserDrivenSetupSmokeTest {
                 server.defaultRemotePath == remotePath
         }
 
+        openScreen("Servers")
+        openFirstServerEditor()
         clickTag("server-scan-lan-button")
         waitForTag("server-trust-scanned-key-button", 45_000)
         clickTag("server-trust-scanned-key-button")
@@ -71,6 +74,7 @@ class UserDrivenSetupSmokeTest {
         waitForText("Public key installed over LAN", 90_000)
 
         openScreen("Profiles")
+        openFirstProfileEditor()
         replaceText("profile-source-path-field", sourceDir.absolutePath)
         replaceText("profile-remote-path-field", remotePath)
         clickTag("target-mode-lan_only")
@@ -84,9 +88,8 @@ class UserDrivenSetupSmokeTest {
                 !profile.constraints.batteryNotLow
         }
 
-        openScreen("Run")
-        composeRule.onNodeWithText("Backup run screen").assertIsDisplayed()
-        clickTag("run-start-backup-button")
+        openScreen("Dashboard")
+        clickTag("dashboard-run-profile-${InitialData.DEFAULT_PROFILE_ID}")
         composeRule.waitUntil(180_000) {
             val status = app.repository.state.value.profiles
                 .first { it.id == InitialData.DEFAULT_PROFILE_ID }
@@ -133,7 +136,23 @@ class UserDrivenSetupSmokeTest {
     }
 
     private fun openScreen(label: String) {
-        composeRule.onAllNodesWithText(label)[0].performClick()
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.requestScreenForTest(label)
+        }
+        composeRule.waitForIdle()
+    }
+
+    private fun openFirstProfileEditor() {
+        composeRule.onAllNodesWithText(app.repository.state.value.profiles.first().name)[0].performClick()
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("Edit")[0].performClick()
+        composeRule.waitForIdle()
+    }
+
+    private fun openFirstServerEditor() {
+        composeRule.onAllNodesWithText(app.repository.state.value.servers.first().name)[0].performClick()
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithText("Edit")[0].performClick()
         composeRule.waitForIdle()
     }
 

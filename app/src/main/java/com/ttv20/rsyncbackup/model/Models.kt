@@ -24,7 +24,15 @@ data class GlobalSettings(
     val exactAlarmFallbackEnabled: Boolean = true,
     val allFilesAccessRequested: Boolean = true,
     val batteryOptimizationExemptionRequested: Boolean = true,
+    val themePreference: ThemePreference = ThemePreference.SYSTEM,
 )
+
+@Serializable
+enum class ThemePreference {
+    SYSTEM,
+    LIGHT,
+    DARK,
+}
 
 @Serializable
 data class GlobalSshKeySettings(

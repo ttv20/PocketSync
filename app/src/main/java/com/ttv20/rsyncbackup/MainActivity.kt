@@ -39,6 +39,13 @@ class MainActivity : ComponentActivity() {
         applyRequestedScreen(intent)
     }
 
+    fun requestScreenForTest(screenName: String) {
+        requestedScreen.value = ScreenRequest(
+            name = screenName,
+            sequence = ++requestSequence,
+        )
+    }
+
     private fun applyRequestedScreen(intent: Intent) {
         val screenName = intent.getStringExtra(EXTRA_START_SCREEN) ?: return
         requestedScreen.value = ScreenRequest(

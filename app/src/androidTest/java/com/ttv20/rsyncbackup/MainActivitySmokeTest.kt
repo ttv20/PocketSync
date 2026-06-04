@@ -27,12 +27,12 @@ class MainActivitySmokeTest {
     fun canNavigateToCoreScreens() {
         openScreen("Profiles")
         assertAnyTextDisplayed("Profiles")
-        openFirstProfile()
+        openFirstProfileEditor()
         composeRule.onNodeWithText("Profile editor").assertIsDisplayed()
 
         openScreen("Servers")
         assertAnyTextDisplayed("Servers")
-        openFirstServer()
+        openFirstServerEditor()
         composeRule.onNodeWithText("Server setup/test").assertIsDisplayed()
 
         openScreen("SSH keys")
@@ -40,9 +40,6 @@ class MainActivitySmokeTest {
 
         openScreen("Tailscale")
         composeRule.onNodeWithText("Tailscale setup/status/test/reset").assertIsDisplayed()
-
-        openScreen("Run")
-        composeRule.onNodeWithText("Backup run screen").assertIsDisplayed()
 
         openScreen("Logs")
         composeRule.onNodeWithText("Last 20").assertIsDisplayed()
@@ -65,7 +62,7 @@ class MainActivitySmokeTest {
     @Test
     fun setupScreensExposeEndToEndControls() {
         openScreen("Profiles")
-        openFirstProfile()
+        openFirstProfileEditor()
         assertVisibleText("profile-editor-scroll", "Profile editor")
         assertVisibleText("profile-editor-scroll", "Source path")
         assertVisibleText("profile-editor-scroll", "Pick")
@@ -77,7 +74,7 @@ class MainActivitySmokeTest {
         assertVisibleText("profile-editor-scroll", "Command preview")
 
         openScreen("Servers")
-        openFirstServer()
+        openFirstServerEditor()
         assertVisibleText("server-editor-scroll", "Server setup/test")
         assertVisibleText("server-editor-scroll", "Primary LAN host")
         assertVisibleText("server-editor-scroll", "Fallback Tailscale host")
@@ -144,7 +141,7 @@ class MainActivitySmokeTest {
         val app = composeRule.activity.application as RsyncBackupApplication
 
         openScreen("Profiles")
-        openFirstProfile()
+        openFirstProfileEditor()
         val serverCount = app.repository.state.value.servers.size
         clickTag("profile-add-server-button")
         composeRule.waitUntil(5_000) {
@@ -203,7 +200,10 @@ class MainActivitySmokeTest {
     }
 
     private fun openScreen(label: String) {
-        composeRule.onAllNodesWithText(label)[0].performClick()
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.requestScreenForTest(label)
+        }
+        composeRule.waitForIdle()
     }
 
     private fun openFirstProfile() {
@@ -212,9 +212,21 @@ class MainActivitySmokeTest {
         composeRule.waitForIdle()
     }
 
+    private fun openFirstProfileEditor() {
+        openFirstProfile()
+        composeRule.onAllNodesWithText("Edit")[0].performClick()
+        composeRule.waitForIdle()
+    }
+
     private fun openFirstServer() {
         val app = composeRule.activity.application as RsyncBackupApplication
         composeRule.onAllNodesWithText(app.repository.state.value.servers.first().name)[0].performClick()
+        composeRule.waitForIdle()
+    }
+
+    private fun openFirstServerEditor() {
+        openFirstServer()
+        composeRule.onAllNodesWithText("Edit")[0].performClick()
         composeRule.waitForIdle()
     }
 }

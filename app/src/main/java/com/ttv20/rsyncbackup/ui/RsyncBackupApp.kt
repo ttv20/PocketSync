@@ -7,6 +7,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -22,12 +23,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Article
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Error
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Key
@@ -52,15 +57,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
@@ -75,6 +79,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -84,11 +89,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -121,6 +128,7 @@ import com.ttv20.rsyncbackup.model.ServerRecord
 import com.ttv20.rsyncbackup.model.Severity
 import com.ttv20.rsyncbackup.model.TargetMode
 import com.ttv20.rsyncbackup.model.TailscaleStateMetadata
+import com.ttv20.rsyncbackup.model.ThemePreference
 import com.ttv20.rsyncbackup.model.toExportDocument
 import com.ttv20.rsyncbackup.permissions.PermissionIntents
 import com.ttv20.rsyncbackup.permissions.PermissionStateReader
@@ -143,12 +151,13 @@ private enum class Screen(val label: String, val icon: ImageVector) {
     Dashboard("Dashboard", Icons.Outlined.Dashboard),
     Profiles("Profiles", Icons.Outlined.Folder),
     Servers("Servers", Icons.Outlined.Storage),
+    Logs("Logs", Icons.Outlined.Article),
     SshKeys("SSH keys", Icons.Outlined.Key),
     Tailscale("Tailscale", Icons.Outlined.Cloud),
-    Run("Run", Icons.Outlined.PlayArrow),
-    Logs("Logs", Icons.Outlined.Article),
     Settings("Settings", Icons.Outlined.Settings),
 }
+
+private val MainScreens = listOf(Screen.Dashboard, Screen.Profiles, Screen.Servers, Screen.Logs)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -189,8 +198,20 @@ fun RsyncBackupApp(
             },
         )
     }
+    var lastMainScreen by rememberSaveable { mutableStateOf(Screen.Dashboard.name) }
+    val selectScreen: (Screen) -> Unit = { target ->
+        val current = runCatching { Screen.valueOf(selectedScreen) }.getOrDefault(Screen.Dashboard)
+        if (current in MainScreens) {
+            lastMainScreen = current.name
+        }
+        selectedScreen = target.name
+    }
     LaunchedEffect(requestedScreenName, requestedScreenRequestId) {
         validScreenName(requestedScreenName)?.let {
+            val current = runCatching { Screen.valueOf(selectedScreen) }.getOrDefault(Screen.Dashboard)
+            if (current in MainScreens) {
+                lastMainScreen = current.name
+            }
             selectedScreen = it
             permissionOnboardingActive = false
         }
@@ -202,17 +223,22 @@ fun RsyncBackupApp(
         }
     }
     val screen = Screen.valueOf(selectedScreen)
+    val backTarget = when (screen) {
+        Screen.Settings -> runCatching { Screen.valueOf(lastMainScreen) }.getOrDefault(Screen.Dashboard)
+        Screen.SshKeys, Screen.Tailscale -> Screen.Settings
+        else -> null
+    }
 
-    RsyncBackupTheme {
+    RsyncBackupTheme(themePreference = state.settings.themePreference) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wide = maxWidth >= 900.dp
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
                     NavigationRail(Modifier.fillMaxHeight()) {
-                        Screen.entries.forEach { item ->
+                        MainScreens.forEach { item ->
                             NavigationRailItem(
                                 selected = item == screen,
-                                onClick = { selectedScreen = item.name },
+                                onClick = { selectScreen(item) },
                                 icon = { Icon(item.icon, contentDescription = item.label) },
                                 label = { Text(item.label, maxLines = 1) },
                             )
@@ -225,7 +251,8 @@ fun RsyncBackupApp(
                         repository = repository,
                         secretStore = secretStore,
                         compactNav = false,
-                        onSelect = { selectedScreen = it.name },
+                        onSelect = selectScreen,
+                        onBack = backTarget?.let { target -> { selectedScreen = target.name } },
                         onRefreshPermissions = refreshPermissions,
                     )
                 }
@@ -237,7 +264,8 @@ fun RsyncBackupApp(
                     repository = repository,
                     secretStore = secretStore,
                     compactNav = true,
-                    onSelect = { selectedScreen = it.name },
+                    onSelect = selectScreen,
+                    onBack = backTarget?.let { target -> { selectedScreen = target.name } },
                     onRefreshPermissions = refreshPermissions,
                 )
             }
@@ -248,6 +276,7 @@ fun RsyncBackupApp(
 private fun validScreenName(name: String?): String? =
     name?.let { value ->
         if (value.equals("Permissions", ignoreCase = true)) return@let Screen.Settings.name
+        if (value.equals("Run", ignoreCase = true)) return@let Screen.Dashboard.name
         Screen.entries.firstOrNull {
             it.name.equals(value, ignoreCase = true) || it.label.equals(value, ignoreCase = true)
         }?.name
@@ -280,21 +309,56 @@ private fun AppScaffold(
     secretStore: SecretStore,
     compactNav: Boolean,
     onSelect: (Screen) -> Unit,
+    onBack: (() -> Unit)?,
     onRefreshPermissions: () -> Unit,
 ) {
+    var detailScreenActive by rememberSaveable { mutableStateOf(false) }
+    var detailBackHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
+    LaunchedEffect(screen) {
+        detailScreenActive = false
+        detailBackHandler = null
+    }
+    val activeBack = detailBackHandler ?: onBack
+    BackHandler(enabled = activeBack != null) {
+        activeBack?.invoke()
+    }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("PocketSync") },
+                navigationIcon = {
+                    activeBack?.let { back ->
+                        IconButton(onClick = back) {
+                            Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
+                title = {
+                    Column {
+                        Text(if (screen == Screen.Dashboard) "PocketSync" else screen.label)
+                        if (screen == Screen.Dashboard) {
+                            Text(
+                                "Profiles, queue, and recent backup state",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                },
                 actions = {
-                    Text(
-                        text = screen.label,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 16.dp),
-                    )
+                    if (screen != Screen.Settings) {
+                        IconButton(onClick = { onSelect(Screen.Settings) }) {
+                            Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+                        }
+                    }
                 },
             )
+        },
+        bottomBar = {
+            if (compactNav && screen in MainScreens && !detailScreenActive) {
+                PhoneBottomNavigation(selected = screen, onSelect = onSelect)
+            }
         },
     ) { padding ->
         Column(
@@ -302,18 +366,30 @@ private fun AppScaffold(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            if (compactNav) {
-                CompactNavigation(selected = screen, onSelect = onSelect)
-            }
             when (screen) {
                 Screen.Dashboard -> DashboardScreen(state, onRun = { BackupService.start(it.context, it.profileId) })
-                Screen.Profiles -> ProfilesScreen(state, repository)
-                Screen.Servers -> ServersScreen(state, repository, secretStore)
+                Screen.Profiles -> ProfilesScreen(
+                    state,
+                    repository,
+                    onSelect,
+                    onDetailActiveChange = { active, back ->
+                        detailScreenActive = active
+                        detailBackHandler = back
+                    },
+                )
+                Screen.Servers -> ServersScreen(
+                    state,
+                    repository,
+                    secretStore,
+                    onDetailActiveChange = { active, back ->
+                        detailScreenActive = active
+                        detailBackHandler = back
+                    },
+                )
                 Screen.SshKeys -> SshKeysScreen(state, repository, secretStore)
                 Screen.Tailscale -> TailscaleScreen(state, repository, secretStore)
-                Screen.Run -> RunScreen(state)
                 Screen.Logs -> LogsScreen(state, repository)
-                Screen.Settings -> SettingsScreen(state, permissions, repository, onRefreshPermissions)
+                Screen.Settings -> SettingsScreen(state, permissions, repository, onRefreshPermissions, onSelect)
             }
         }
     }
@@ -322,88 +398,119 @@ private fun AppScaffold(
 private data class RunRequest(val context: Context, val profileId: String)
 
 @Composable
-private fun CompactNavigation(selected: Screen, onSelect: (Screen) -> Unit) {
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Screen.entries.forEach { item ->
-            FilterChip(
+private fun PhoneBottomNavigation(selected: Screen, onSelect: (Screen) -> Unit) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+        MainScreens.forEach { item ->
+            NavigationBarItem(
                 selected = selected == item,
                 onClick = { onSelect(item) },
-                label = { Text(item.label) },
-                leadingIcon = { Icon(item.icon, contentDescription = null) },
+                icon = { Icon(item.icon, contentDescription = item.label) },
+                label = { Text(item.label, maxLines = 1) },
             )
         }
     }
-    HorizontalDivider()
 }
 
 @Composable
 private fun DashboardScreen(state: AppState, onRun: (RunRequest) -> Unit) {
     val context = LocalContext.current
+    val readyCount = state.profiles.count { profile ->
+        ProfileValidator.validate(profile, state).none { it.severity == Severity.ERROR }
+    }
+    val warningCount = state.profiles.count { profile ->
+        ProfileValidator.validate(profile, state).any { it.severity == Severity.WARNING }
+    }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .testTag("dashboard"),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            SectionHeader("Dashboard", "Profiles, queue, and last results")
+            CompactMetricStrip(
+                metrics = listOf(
+                    MetricSpec("Up to date", readyCount.toString(), Icons.Outlined.CheckCircle, MetricTone.Success),
+                    MetricSpec("Warnings", warningCount.toString(), Icons.Outlined.Warning, MetricTone.Warning),
+                    MetricSpec("In queue", state.queue.queuedProfileIds.size.toString(), Icons.Outlined.Sync, MetricTone.Route),
+                    MetricSpec("Servers", state.servers.size.toString(), Icons.Outlined.Storage, MetricTone.Neutral),
+                ),
+            )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Metric("Profiles", state.profiles.size.toString(), Modifier.weight(1f))
-                Metric("Servers", state.servers.size.toString(), Modifier.weight(1f))
-                Metric("Logs", state.logs.size.toString(), Modifier.weight(1f))
-            }
-        }
-        item {
-            SectionCard {
-                Text("Queue", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                Text("Running: ${state.queue.runningProfileId ?: "none"}")
-                Text("Queued: ${state.queue.queuedProfileIds.joinToString().ifBlank { "none" }}")
-            }
+            SectionHeader("Dashboard", "Overview of profiles and activity")
         }
         items(state.profiles) { profile ->
             val issues = ProfileValidator.validate(profile, state)
             val liveProgress = state.runProgress.takeIf { it.profileId == profile.id }
             val isRunningProfile = state.queue.runningProfileId == profile.id
-            SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) {
-                        Text(profile.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text(profile.remotePath, style = MaterialTheme.typography.bodyMedium)
-                        Text(profile.status.lastMessage ?: "No runs yet", style = MaterialTheme.typography.bodySmall)
-                    }
-                    ElevatedButton(
+            val server = state.servers.firstOrNull { it.id == profile.serverId }
+            ProfileListRow(
+                profile = profile,
+                server = server,
+                issues = issues,
+                selected = false,
+                showRunStatus = true,
+                liveProgress = liveProgress,
+                trailing = {
+                    Button(
                         onClick = {
-                            if (isRunningProfile) {
-                                BackupService.cancel(context)
-                            } else {
-                                onRun(RunRequest(context, profile.id))
-                            }
+                            if (isRunningProfile) BackupService.cancel(context) else onRun(RunRequest(context, profile.id))
                         },
                         enabled = isRunningProfile || issues.none { it.severity == Severity.ERROR },
+                        modifier = Modifier.testTag("dashboard-run-profile-${profile.id}"),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                     ) {
                         Icon(
                             if (isRunningProfile) Icons.Outlined.Error else Icons.Outlined.PlayArrow,
                             contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(if (isRunningProfile) "Stop" else "Run")
                     }
-                }
+                },
+            ) {
                 liveProgress?.let {
                     DashboardProfileProgress(it)
                 }
-                IssueList(issues)
             }
+        }
+        item {
+            QueueSection(state)
+        }
+    }
+}
+
+@Composable
+private fun QueueSection(state: AppState) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("Queue", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("${state.queue.queuedProfileIds.size} jobs", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+        }
+        val runningName = state.profiles.firstOrNull { it.id == state.queue.runningProfileId }?.name
+        if (runningName == null && state.queue.queuedProfileIds.isEmpty()) {
+            Text("No backup jobs waiting", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        } else {
+            runningName?.let {
+                QueueRow("Running", it, state.runProgress.bytesTransferred ?: state.runProgress.message ?: "In progress")
+            }
+            state.queue.queuedProfileIds.forEach { id ->
+                QueueRow("Waiting", state.profiles.firstOrNull { it.id == id }?.name ?: id, "Queued")
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueueRow(label: String, name: String, detail: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        StatusBadge(label, MetricTone.Route)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -426,7 +533,7 @@ private fun DashboardProfileProgress(progress: RunProgressState) {
         )
         ProgressMetric("Duration", progress.duration ?: "-")
     }
-    lastNonFileOutputLine(progress)?.let { line ->
+    lastOutputLine(progress)?.let { line ->
         Text(
             line,
             style = MaterialTheme.typography.bodySmall,
@@ -438,21 +545,335 @@ private fun DashboardProfileProgress(progress: RunProgressState) {
     }
 }
 
-private fun lastNonFileOutputLine(progress: RunProgressState): String? =
+private enum class MetricTone {
+    Success,
+    Warning,
+    Destructive,
+    Route,
+    Neutral,
+}
+
+private data class MetricSpec(
+    val label: String,
+    val value: String,
+    val icon: ImageVector,
+    val tone: MetricTone,
+)
+
+@Composable
+private fun CompactMetricStrip(metrics: List<MetricSpec>) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        metrics.forEach { metric ->
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(6.dp),
+                tonalElevation = 1.dp,
+                shadowElevation = 0.dp,
+                modifier = Modifier.weight(1f),
+            ) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 9.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            metric.icon,
+                            contentDescription = null,
+                            tint = toneColor(metric.tone),
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(metric.value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(
+                        metric.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileListRow(
+    profile: BackupProfile,
+    server: ServerRecord?,
+    issues: List<com.ttv20.rsyncbackup.model.ValidationIssue>,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    showRunStatus: Boolean = false,
+    liveProgress: RunProgressState? = null,
+    trailing: @Composable () -> Unit,
+    expandedContent: @Composable ColumnScope.() -> Unit = {},
+) {
+    SectionCard(
+        modifier = modifier
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        selected = selected,
+    ) {
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+            EntityIcon(Icons.Outlined.Folder, if (issues.any { it.severity == Severity.ERROR }) MetricTone.Warning else MetricTone.Route)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        profile.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selected) {
+                        StatusBadge("Selected", MetricTone.Route)
+                    }
+                }
+                Text(profile.sourcePath, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ProfileRouteLine(profile, server)
+                LastNextLine(profile)
+                if (showRunStatus) {
+                    DashboardRunStatusLine(profile, liveProgress)
+                }
+                conciseIssueText(issues, profile)?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = toneColor(if (issues.any { issue -> issue.severity == Severity.ERROR }) MetricTone.Destructive else MetricTone.Warning),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                trailing()
+            }
+        }
+        if (selected) {
+            HorizontalDivider()
+            expandedContent()
+        }
+    }
+}
+
+@Composable
+private fun ServerListRow(
+    server: ServerRecord,
+    trusted: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    trailing: @Composable () -> Unit,
+    expandedContent: @Composable ColumnScope.() -> Unit = {},
+) {
+    SectionCard(
+        modifier = modifier
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        selected = selected,
+    ) {
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+            EntityIcon(Icons.Outlined.Storage, if (trusted) MetricTone.Success else MetricTone.Warning)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(server.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${server.user}@${server.lanHost}:${server.port}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                RouteSummaryLine("LAN", server.lanHost, MetricTone.Route)
+                server.tailscaleHost?.let { RouteSummaryLine("Tailscale", it, MetricTone.Route) }
+                RouteSummaryLine("Fingerprint", if (trusted) "Trusted" else "Needs fingerprint", if (trusted) MetricTone.Success else MetricTone.Warning)
+            }
+            Spacer(Modifier.width(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                trailing()
+            }
+        }
+        if (selected) {
+            HorizontalDivider()
+            expandedContent()
+        }
+    }
+}
+
+@Composable
+private fun EntityIcon(icon: ImageVector, tone: MetricTone) {
+    Surface(
+        color = toneColor(tone).copy(alpha = 0.12f),
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = toneColor(tone),
+            modifier = Modifier
+                .padding(8.dp)
+                .size(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun ProfileRouteLine(profile: BackupProfile, server: ServerRecord?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Storage, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.width(5.dp))
+        Text(
+            listOfNotNull(server?.name ?: "Missing server", routeModeLabel(profile.targetMode)).joinToString(" - "),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun LastNextLine(profile: BackupProfile) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text("Last: ${profile.status.lastSuccessAt ?: profile.status.lastRunAt ?: "Never"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text("Next: ${profile.status.nextRunAt ?: scheduleLabel(profile.schedule)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun DashboardRunStatusLine(profile: BackupProfile, liveProgress: RunProgressState?) {
+    val live = liveProgress?.takeIf { it.phase != RunProgressPhase.IDLE }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        StatusBadge(
+            label = live?.let { phaseLabel(it.phase) } ?: profile.status.lastStatus.name.lowercase(),
+            tone = live?.let { MetricTone.Route } ?: profile.status.lastStatus.tone(),
+        )
+        live?.let { progress ->
+            lastOutputLine(progress)?.let { line ->
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    line,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteSummaryLine(label: String, value: String, tone: MetricTone) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RouteChip(label, tone)
+        Spacer(Modifier.width(8.dp))
+        Text(value, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun StatusBadge(label: String, tone: MetricTone) {
+    Surface(
+        color = toneColor(tone).copy(alpha = 0.12f),
+        contentColor = toneColor(tone),
+        shape = RoundedCornerShape(50),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun RouteChip(label: String, tone: MetricTone = MetricTone.Route) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = toneColor(tone),
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+    )
+}
+
+@Composable
+private fun AddRow(label: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(6.dp),
+        tonalElevation = 1.dp,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+            Text(">", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
+        }
+    }
+}
+
+@Composable
+private fun EmptyActionRow(title: String, action: String, icon: ImageVector, onClick: () -> Unit) {
+    SectionCard {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        OutlinedButton(onClick = onClick) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(action)
+        }
+    }
+}
+
+@Composable
+private fun toneColor(tone: MetricTone) = when (tone) {
+    MetricTone.Success -> if (MaterialTheme.colorScheme.background == Color(0xFF0B0F0E)) Color(0xFF9AD37E) else SuccessColor
+    MetricTone.Warning -> MaterialTheme.colorScheme.tertiary
+    MetricTone.Destructive -> MaterialTheme.colorScheme.error
+    MetricTone.Route -> MaterialTheme.colorScheme.primary
+    MetricTone.Neutral -> MaterialTheme.colorScheme.secondary
+}
+
+private fun conciseIssueText(
+    issues: List<com.ttv20.rsyncbackup.model.ValidationIssue>,
+    profile: BackupProfile,
+): String? {
+    if (profile.deleteEnabled) return "Delete enabled"
+    return issues.firstOrNull()?.message
+}
+
+private fun routeModeLabel(targetMode: TargetMode): String =
+    when (targetMode) {
+        TargetMode.LAN_ONLY -> "LAN only"
+        TargetMode.LAN_FIRST_TAILSCALE_FALLBACK -> "LAN first"
+        TargetMode.TAILSCALE_FIRST_LAN_FALLBACK -> "Tailscale first"
+        TargetMode.TAILSCALE_ONLY -> "Tailscale only"
+    }
+
+private fun scheduleLabel(schedule: BackupSchedule): String =
+    when (schedule.type) {
+        ScheduleType.DISABLED -> "Disabled"
+        ScheduleType.EXACT_DAILY -> "Daily, ${schedule.timeLocal}"
+        ScheduleType.BEST_EFFORT_DAILY -> "Best effort, ${schedule.timeLocal}"
+    }
+
+private fun lastOutputLine(progress: RunProgressState): String? =
     progress.recentOutput
         .asReversed()
         .map { it.trim() }
-        .firstOrNull { line ->
-            line.isNotBlank() &&
-                line != progress.currentFile?.trim() &&
-                !looksLikeRsyncFileOutput(line)
-        }
-
-private fun looksLikeRsyncFileOutput(line: String): Boolean =
-    !line.contains(":") && !line.startsWith("sent ") && !line.startsWith("total size ")
+        .firstOrNull { it.isNotBlank() }
 
 @Composable
-private fun ProfilesScreen(state: AppState, repository: AppRepository) {
+private fun ProfilesScreen(
+    state: AppState,
+    repository: AppRepository,
+    onSelectScreen: (Screen) -> Unit,
+    onDetailActiveChange: (Boolean, (() -> Unit)?) -> Unit,
+) {
     val context = LocalContext.current
     val scheduler = remember(context) { BackupScheduler(context) }
     var compactEditorOpen by rememberSaveable { mutableStateOf(false) }
@@ -468,8 +889,14 @@ private fun ProfilesScreen(state: AppState, repository: AppRepository) {
         }
     }
     val selected = state.profiles.firstOrNull { it.id == selectedProfileId } ?: state.profiles.firstOrNull()
+    val closeEditor = {
+        draftProfile = null
+        onDetailActiveChange(false, null)
+        compactEditorOpen = false
+    }
     val addProfile: () -> Unit = {
         state.servers.firstOrNull()?.let { server ->
+            onDetailActiveChange(true, closeEditor)
             draftProfile = BackupProfile(
                 id = UUID.randomUUID().toString(),
                 name = "New profile",
@@ -491,74 +918,119 @@ private fun ProfilesScreen(state: AppState, repository: AppRepository) {
         repository.upsertServer(server)
         server
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val stacked = maxWidth < 720.dp
-        val editingProfile = draftProfile ?: selected
-        val list: @Composable (Modifier) -> Unit = { modifier ->
-            EntityList(
-                title = "Profiles",
-                items = state.profiles.map { it.id to it.name },
-                selectedId = selected?.id,
-                onSelect = {
-                    draftProfile = null
-                    selectedProfileId = it
-                    compactEditorOpen = true
-                },
-                onAdd = addProfile,
-                addButtonTag = "profiles-add-button",
-                modifier = modifier,
-            )
-        }
-        val editor: @Composable (Modifier) -> Unit = { modifier ->
-            if (editingProfile != null) {
-                val isDraft = draftProfile?.id == editingProfile.id
-                ProfileEditor(
-                    state = state,
-                    profile = editingProfile,
-                    onSave = {
-                        repository.upsertProfile(it)
-                        scheduler.schedule(it)
-                        selectedProfileId = it.id
-                        draftProfile = null
-                        if (stacked) compactEditorOpen = false
-                    },
-                    onDelete = {
-                        if (!isDraft) {
-                            scheduler.cancel(editingProfile.id)
-                            repository.removeProfile(editingProfile.id)
-                            selectedProfileId = state.profiles.firstOrNull { it.id != editingProfile.id }?.id
-                        }
-                        draftProfile = null
-                        if (stacked) compactEditorOpen = false
-                    },
-                    onAddServer = addServerFromProfile,
-                    onBack = if (stacked) {
-                        {
-                            draftProfile = null
-                            compactEditorOpen = false
-                        }
-                    } else {
-                        null
-                    },
-                    deleteLabel = if (isDraft) "Cancel" else "Delete",
-                    modifier = modifier,
-                )
+    SideEffect {
+        onDetailActiveChange(compactEditorOpen, if (compactEditorOpen) closeEditor else null)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onDetailActiveChange(false, null) }
+    }
+    val editingProfile = draftProfile ?: selected
+    if (compactEditorOpen && editingProfile != null) {
+        val isDraft = draftProfile?.id == editingProfile.id
+        ProfileEditor(
+            state = state,
+            profile = editingProfile,
+            onSave = {
+                repository.upsertProfile(it)
+                scheduler.schedule(it)
+                selectedProfileId = it.id
+                closeEditor()
+            },
+            onDelete = {
+                if (!isDraft) {
+                    scheduler.cancel(editingProfile.id)
+                    repository.removeProfile(editingProfile.id)
+                    selectedProfileId = state.profiles.firstOrNull { it.id != editingProfile.id }?.id
+                }
+                closeEditor()
+            },
+            onAddServer = addServerFromProfile,
+            onBack = closeEditor,
+            deleteLabel = if (isDraft) "Cancel" else "Delete",
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    SectionHeader("Profiles", "${state.profiles.size} configured")
+                    Spacer(Modifier.weight(1f))
+                    IconButton(
+                        onClick = addProfile,
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = "Add profile")
+                    }
+                }
             }
-        }
-        if (stacked) {
-            if (compactEditorOpen && editingProfile != null) {
-                editor(Modifier.fillMaxSize())
-            } else {
-                list(Modifier.fillMaxSize())
+            items(state.profiles, key = { it.id }) { profile ->
+                val server = state.servers.firstOrNull { it.id == profile.serverId }
+                val issues = ProfileValidator.validate(profile, state)
+                val isSelected = profile.id == selected?.id
+                ProfileListRow(
+                    profile = profile,
+                    server = server,
+                    issues = issues,
+                    selected = isSelected,
+                    onClick = { selectedProfileId = profile.id },
+                    trailing = {
+                        if (!isSelected) {
+                            Button(
+                                onClick = { BackupService.start(context, profile.id) },
+                                enabled = issues.none { it.severity == Severity.ERROR },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            ) {
+                                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Run")
+                            }
+                        }
+                    },
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { BackupService.start(context, profile.id) },
+                            enabled = issues.none { it.severity == Severity.ERROR },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Run")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                draftProfile = null
+                                selectedProfileId = profile.id
+                                onDetailActiveChange(true, closeEditor)
+                                compactEditorOpen = true
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Edit")
+                        }
+                        OutlinedButton(
+                            onClick = { onSelectScreen(Screen.Logs) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Outlined.Article, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Logs")
+                        }
+                    }
+                }
             }
-        } else {
-            Row(Modifier.fillMaxSize()) {
-                list(
-                    Modifier
-                        .width(280.dp)
-                        .fillMaxHeight(),
-                )
-                editor(Modifier.weight(1f))
+            if (state.profiles.isEmpty()) {
+                item {
+                    EmptyActionRow("No profiles yet", "Add profile", Icons.Outlined.Add, addProfile)
+                }
+            }
+            item {
+                AddRow("Add profile", Icons.Outlined.Add, addProfile, Modifier.testTag("profiles-add-button"))
             }
         }
     }
@@ -622,7 +1094,6 @@ private fun ProfileEditor(
             Button(
                 onClick = saveProfile,
                 enabled = issues.none { it.severity == Severity.ERROR },
-                modifier = Modifier.testTag("profile-save-button"),
             ) {
                 Icon(Icons.Outlined.Save, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -653,78 +1124,116 @@ private fun ProfileEditor(
                 }
             }
         }
-        OutlinedTextField(editing.name, { editing = editing.copy(name = it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                editing.sourcePath,
-                {
-                    editing = editing.copy(sourcePath = it)
-                    sourcePickerError = null
-                },
-                label = { Text("Source path") },
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("profile-source-path-field"),
-            )
-            OutlinedButton(onClick = { sourcePicker.launch(null) }) {
-                Icon(Icons.Outlined.Folder, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Pick")
+        SectionCard {
+            Text("Source", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(editing.name, { editing = editing.copy(name = it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    editing.sourcePath,
+                    {
+                        editing = editing.copy(sourcePath = it)
+                        sourcePickerError = null
+                    },
+                    label = { Text("Source path") },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("profile-source-path-field"),
+                )
+                OutlinedButton(onClick = { sourcePicker.launch(null) }) {
+                    Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Pick")
+                }
             }
+            sourcePickerError?.let { ErrorText(it) }
         }
-        sourcePickerError?.let { ErrorText(it) }
-        OutlinedTextField(
-            editing.remotePath,
-            { editing = editing.copy(remotePath = it) },
-            label = { Text("Remote path") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("profile-remote-path-field"),
-        )
-        Selector("Server") {
-            state.servers.forEach { server ->
+        SectionCard {
+            Text("Target", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Selector("Server") {
+                state.servers.forEach { server ->
+                    FilterChip(
+                        selected = editing.serverId == server.id,
+                        onClick = { editing = editing.copy(serverId = server.id, remotePath = server.defaultRemotePath) },
+                        label = { Text(server.name) },
+                    )
+                }
                 FilterChip(
-                    selected = editing.serverId == server.id,
-                    onClick = { editing = editing.copy(serverId = server.id, remotePath = server.defaultRemotePath) },
-                    label = { Text(server.name) },
+                    selected = false,
+                    onClick = {
+                        val server = onAddServer()
+                        editing = editing.copy(serverId = server.id, remotePath = server.defaultRemotePath)
+                    },
+                    label = { Text("Add server") },
+                    leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                    modifier = Modifier.testTag("profile-add-server-button"),
                 )
             }
-            FilterChip(
-                selected = false,
-                onClick = {
-                    val server = onAddServer()
-                    editing = editing.copy(serverId = server.id, remotePath = server.defaultRemotePath)
-                },
-                label = { Text("Add server") },
-                leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                modifier = Modifier.testTag("profile-add-server-button"),
+            OutlinedTextField(
+                editing.remotePath,
+                { editing = editing.copy(remotePath = it) },
+                label = { Text("Remote path") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("profile-remote-path-field"),
+            )
+            TargetModeSelector(editing.targetMode) { editing = editing.copy(targetMode = it) }
+        }
+        SectionCard {
+            Text("Schedule", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            ScheduleEditor(editing.schedule) { editing = editing.copy(schedule = it) }
+        }
+        ConstraintEditor(editing.constraints) { editing = editing.copy(constraints = it) }
+        SectionCard {
+            Text("Safety", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            WarningRow("Delete remote files not present locally", "Deletes server files that are not present in the source.", editing.deleteEnabled) {
+                editing = editing.copy(deleteEnabled = it)
+            }
+        }
+        SectionCard {
+            Text("Advanced", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = editing.excludes,
+                onValueChange = { editing = editing.copy(excludes = it) },
+                label = { Text("Excludes") },
+                minLines = 6,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = editing.advancedArgs,
+                onValueChange = { editing = editing.copy(advancedArgs = it) },
+                label = { Text("Advanced rsync args") },
+                modifier = Modifier.fillMaxWidth(),
             )
         }
-        TargetModeSelector(editing.targetMode) { editing = editing.copy(targetMode = it) }
-        ScheduleEditor(editing.schedule) { editing = editing.copy(schedule = it) }
-        ConstraintEditor(editing.constraints) { editing = editing.copy(constraints = it) }
-        ToggleRow("Delete remote files not present locally", editing.deleteEnabled) {
-            editing = editing.copy(deleteEnabled = it)
-        }
-        OutlinedTextField(
-            value = editing.excludes,
-            onValueChange = { editing = editing.copy(excludes = it) },
-            label = { Text("Excludes") },
-            minLines = 8,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = editing.advancedArgs,
-            onValueChange = { editing = editing.copy(advancedArgs = it) },
-            label = { Text("Advanced rsync args") },
-            modifier = Modifier.fillMaxWidth(),
-        )
         CommandPreview(state, editing)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Test")
+            }
+            Button(
+                onClick = saveProfile,
+                enabled = issues.none { it.severity == Severity.ERROR },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("profile-save-button"),
+            ) {
+                Icon(Icons.Outlined.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Save")
+            }
+        }
     }
 }
 
 @Composable
-private fun ServersScreen(state: AppState, repository: AppRepository, secretStore: SecretStore) {
+private fun ServersScreen(
+    state: AppState,
+    repository: AppRepository,
+    secretStore: SecretStore,
+    onDetailActiveChange: (Boolean, (() -> Unit)?) -> Unit,
+) {
     var compactEditorOpen by rememberSaveable { mutableStateOf(false) }
     var draftServer by remember { mutableStateOf<ServerRecord?>(null) }
     var selectedServerId by rememberSaveable {
@@ -738,70 +1247,115 @@ private fun ServersScreen(state: AppState, repository: AppRepository, secretStor
         }
     }
     val selected = state.servers.firstOrNull { it.id == selectedServerId } ?: state.servers.firstOrNull()
+    val closeEditor = {
+        draftServer = null
+        onDetailActiveChange(false, null)
+        compactEditorOpen = false
+    }
     val addServer = {
+        onDetailActiveChange(true, closeEditor)
         draftServer = defaultServer("New server", state.servers.size + 1)
         selectedServerId = draftServer?.id
         compactEditorOpen = true
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val stacked = maxWidth < 720.dp
-        val editingServer = draftServer ?: selected
-        val list: @Composable (Modifier) -> Unit = { modifier ->
-            EntityList(
-                title = "Servers",
-                items = state.servers.map { it.id to it.name },
-                selectedId = selected?.id,
-                onSelect = {
-                    draftServer = null
-                    selectedServerId = it
-                    compactEditorOpen = true
-                },
-                onAdd = addServer,
-                addButtonTag = "servers-add-button",
-                modifier = modifier,
-            )
-        }
-        val editor: @Composable (Modifier) -> Unit = { modifier ->
-            if (editingServer != null) {
-                val isDraft = draftServer?.id == editingServer.id
-                ServerEditor(
-                    state = state,
-                    server = editingServer,
-                    repository = repository,
-                    secretStore = secretStore,
-                    onSave = {
-                        repository.upsertServer(it)
-                        selectedServerId = it.id
-                        draftServer = null
-                        if (stacked) compactEditorOpen = false
+    SideEffect {
+        onDetailActiveChange(compactEditorOpen, if (compactEditorOpen) closeEditor else null)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onDetailActiveChange(false, null) }
+    }
+    val editingServer = draftServer ?: selected
+    if (compactEditorOpen && editingServer != null) {
+        val isDraft = draftServer?.id == editingServer.id
+        ServerEditor(
+            state = state,
+            server = editingServer,
+            repository = repository,
+            secretStore = secretStore,
+            onSave = {
+                repository.upsertServer(it)
+                selectedServerId = it.id
+                closeEditor()
+            },
+            onBack = closeEditor,
+            cancelLabel = if (isDraft) "Cancel" else "Back",
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    SectionHeader("Servers", "${state.servers.size} configured")
+                    Spacer(Modifier.weight(1f))
+                    IconButton(
+                        onClick = addServer,
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = "Add server")
+                    }
+                }
+            }
+            items(state.servers, key = { it.id }) { server ->
+                val trusted = state.trustedHostFingerprints.any {
+                    it.serverId == server.id || it.serverId == server.fingerprintGroupId
+                }
+                val isSelected = server.id == selected?.id
+                ServerListRow(
+                    server = server,
+                    trusted = trusted,
+                    selected = isSelected,
+                    onClick = { selectedServerId = server.id },
+                    trailing = {
+                        StatusBadge(if (trusted) "Reachable" else "Needs fingerprint", if (trusted) MetricTone.Success else MetricTone.Warning)
                     },
-                    onBack = if (stacked) {
-                        {
-                            draftServer = null
-                            compactEditorOpen = false
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = {
+                                selectedServerId = server.id
+                                onDetailActiveChange(true, closeEditor)
+                                compactEditorOpen = true
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Test")
                         }
-                    } else {
-                        null
-                    },
-                    cancelLabel = if (isDraft) "Cancel" else "Back",
-                    modifier = modifier,
-                )
+                        OutlinedButton(
+                            onClick = { selectedServerId = server.id },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Select")
+                        }
+                        Button(
+                            onClick = {
+                                draftServer = null
+                                selectedServerId = server.id
+                                onDetailActiveChange(true, closeEditor)
+                                compactEditorOpen = true
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Edit")
+                        }
+                    }
+                }
             }
-        }
-        if (stacked) {
-            if (compactEditorOpen && editingServer != null) {
-                editor(Modifier.fillMaxSize())
-            } else {
-                list(Modifier.fillMaxSize())
+            if (state.servers.isEmpty()) {
+                item {
+                    EmptyActionRow("No servers yet", "Add server", Icons.Outlined.Add, addServer)
+                }
             }
-        } else {
-            Row(Modifier.fillMaxSize()) {
-                list(
-                    Modifier
-                        .width(280.dp)
-                        .fillMaxHeight(),
-                )
-                editor(Modifier.weight(1f))
+            item {
+                AddRow("Add server", Icons.Outlined.Add, addServer, Modifier.testTag("servers-add-button"))
             }
         }
     }
@@ -884,40 +1438,46 @@ private fun ServerEditor(
                 Text("Save")
             }
         }
-        OutlinedTextField(editing.name, { editing = editing.copy(name = it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(
-            editing.user,
-            { editing = editing.copy(user = it) },
-            label = { Text("User") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("server-user-field"),
-        )
-        OutlinedTextField(
-            editing.lanHost,
-            { editing = editing.copy(lanHost = it) },
-            label = { Text("Primary LAN host") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("server-lan-host-field"),
-        )
-        OutlinedTextField(editing.tailscaleHost.orEmpty(), { editing = editing.copy(tailscaleHost = it.ifBlank { null }) }, label = { Text("Fallback Tailscale host") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(
-            value = editing.port.toString(),
-            onValueChange = { value -> editing = editing.copy(port = value.toIntOrNull()?.coerceIn(1, 65535) ?: editing.port) },
-            label = { Text("Port") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("server-port-field"),
-        )
-        OutlinedTextField(
-            editing.defaultRemotePath,
-            { editing = editing.copy(defaultRemotePath = it) },
-            label = { Text("Default remote path") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("server-default-remote-path-field"),
-        )
+        SectionCard {
+            Text("Identity", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(editing.name, { editing = editing.copy(name = it) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                editing.user,
+                { editing = editing.copy(user = it) },
+                label = { Text("User") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("server-user-field"),
+            )
+        }
+        SectionCard {
+            Text("Addresses", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                editing.lanHost,
+                { editing = editing.copy(lanHost = it) },
+                label = { Text("Primary LAN host") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("server-lan-host-field"),
+            )
+            OutlinedTextField(editing.tailscaleHost.orEmpty(), { editing = editing.copy(tailscaleHost = it.ifBlank { null }) }, label = { Text("Fallback Tailscale host") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = editing.port.toString(),
+                onValueChange = { value -> editing = editing.copy(port = value.toIntOrNull()?.coerceIn(1, 65535) ?: editing.port) },
+                label = { Text("Port") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("server-port-field"),
+            )
+            OutlinedTextField(
+                editing.defaultRemotePath,
+                { editing = editing.copy(defaultRemotePath = it) },
+                label = { Text("Default remote path") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("server-default-remote-path-field"),
+            )
+        }
         SectionCard {
             Text("Trusted fingerprint", style = MaterialTheme.typography.titleMedium)
             Text("LAN and Tailscale addresses share fingerprint group ${editing.fingerprintGroupId}")
@@ -1520,109 +2080,6 @@ private fun PermissionSettingsSection(
     }
 }
 
-@Composable
-private fun RunScreen(state: AppState) {
-    val context = LocalContext.current
-    var selectedProfileId by rememberSaveable(state.profiles.map { it.id }.joinToString()) {
-        mutableStateOf(state.profiles.firstOrNull()?.id)
-    }
-    val profile = state.profiles.firstOrNull { it.id == selectedProfileId }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("run-screen-scroll")
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        SectionHeader("Backup run screen", "Manual run, command preview, and queue state")
-        RunProgressCard(state.runProgress)
-        Selector("Profile") {
-            state.profiles.forEach { item ->
-                FilterChip(selected = item.id == selectedProfileId, onClick = { selectedProfileId = item.id }, label = { Text(item.name) })
-            }
-        }
-        if (profile != null) {
-            val issues = ProfileValidator.validate(profile, state)
-            val runningProfileId = state.queue.runningProfileId
-            val isRunning = runningProfileId != null
-            val isSelectedProfileRunning = runningProfileId == profile.id
-            IssueList(issues)
-            CommandPreview(state, profile)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = { BackupService.start(context, profile.id) },
-                    enabled = issues.none { it.severity == Severity.ERROR },
-                    modifier = Modifier.testTag("run-start-backup-button"),
-                ) {
-                    Icon(Icons.Outlined.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Start backup")
-                }
-                if (isRunning) {
-                    OutlinedButton(
-                        onClick = { BackupService.cancel(context) },
-                        enabled = isSelectedProfileRunning,
-                    ) {
-                        Icon(Icons.Outlined.Error, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Cancel")
-                    }
-                }
-                if (state.runProgress.phase == RunProgressPhase.CANCELLING || state.runProgress.phase == RunProgressPhase.FORCE_STOPPING) {
-                    OutlinedButton(
-                        onClick = { BackupService.forceStop(context) },
-                        enabled = isSelectedProfileRunning,
-                    ) {
-                        Icon(Icons.Outlined.Warning, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Force stop")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RunProgressCard(progress: RunProgressState) {
-    SectionCard {
-        Text("Live progress", style = MaterialTheme.typography.titleMedium)
-        Text(progress.message ?: phaseLabel(progress.phase), fontWeight = FontWeight.SemiBold)
-        Text(
-            listOfNotNull(progress.profileName, progress.updatedAt?.let { "updated $it" }).joinToString(" - ").ifBlank { "No active run" },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.secondary,
-        )
-        progress.currentFile?.let {
-            Text("Current file", style = MaterialTheme.typography.labelLarge)
-            SelectableBlock(it)
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ProgressMetric("Phase", phaseLabel(progress.phase))
-            ProgressMetric("Files", progress.filesDiscovered?.toString() ?: "-")
-            ProgressMetric("Transferred", progress.filesTransferred?.toString() ?: "-")
-            ProgressMetric("Bytes", progress.bytesTransferredRaw?.let { formatBytesUi(it) } ?: progress.bytesTransferred ?: "-")
-            ProgressMetric("Speed", progress.speed ?: "-")
-            ProgressMetric(
-                "Avg speed",
-                progress.averageBytesPerSecond?.let { "${formatBytesUi(it)}/s" }
-                    ?: progress.recentAverageBytesPerSecond?.let { "${formatBytesUi(it)}/s" }
-                    ?: "-",
-            )
-            ProgressMetric("Duration", progress.duration ?: "-")
-        }
-        if (progress.finalStats.isNotEmpty()) {
-            Text("Final stats", style = MaterialTheme.typography.labelLarge)
-            SelectableBlock(progress.finalStats.entries.joinToString("\n") { "${it.key}: ${it.value}" })
-        }
-        if (progress.recentOutput.isNotEmpty()) {
-            Text("Recent output", style = MaterialTheme.typography.labelLarge)
-            SelectableBlock(progress.recentOutput.joinToString("\n"))
-        }
-    }
-}
-
 private fun formatBytesUi(bytes: Long): String {
     val units = listOf("B", "KB", "MB", "GB", "TB")
     var value = bytes.toDouble()
@@ -1638,8 +2095,8 @@ private fun formatBytesUi(bytes: Long): String {
 private fun LogsScreen(state: AppState, repository: AppRepository) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -1658,22 +2115,38 @@ private fun LogsScreen(state: AppState, repository: AppRepository) {
         }
         items(state.logs) { log ->
             SectionCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusIcon(log.status)
-                    Spacer(Modifier.width(8.dp))
+                Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                    EntityIcon(
+                        icon = when (log.status) {
+                            RunStatus.SUCCESS -> Icons.Outlined.CheckCircle
+                            RunStatus.WARNING -> Icons.Outlined.Warning
+                            RunStatus.FAILED, RunStatus.CANCELLED -> Icons.Outlined.Error
+                            else -> Icons.Outlined.Sync
+                        },
+                        tone = log.status.tone(),
+                    )
+                    Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(log.profileName, fontWeight = FontWeight.SemiBold)
-                        Text(log.summary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(log.profileName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            StatusBadge(log.status.name.lowercase(), log.status.tone())
+                        }
+                        Text(
+                            log.finishedAt ?: "Running since ${log.startedAt}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            log.summary.ifBlank { "No summary" },
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ProgressMetric("Run", log.trigger.label())
-                    ProgressMetric("Started", log.startedAt)
-                    ProgressMetric(log.finishedLabel(), log.finishedAt ?: "running")
-                    log.endReason?.let { reason ->
-                        ProgressMetric("Reason", reason.label())
-                    }
-                }
+                CompactLogBlock(log)
                 log.endReasonDetail
                     ?.takeIf { it.isNotBlank() && it != log.summary }
                     ?.let { detail ->
@@ -1700,7 +2173,47 @@ private fun LogsScreen(state: AppState, repository: AppRepository) {
                 }
             }
         }
+        if (state.logs.isEmpty()) {
+            item {
+                SectionCard {
+                    Text("No logs yet", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("Run a profile to record the first result.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun CompactLogBlock(log: BackupLog) {
+    Surface(
+        color = if (MaterialTheme.colorScheme.background == Color(0xFF0B0F0E)) LogSurfaceDark else LogSurfaceLight,
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(10.dp),
+        ) {
+            ProgressMetric("Run", log.trigger.label(), Modifier.weight(0.8f))
+            ProgressMetric(log.finishedLabel(), log.finishedAt ?: "running", Modifier.weight(1.5f))
+            ProgressMetric("Bytes", log.finalByteSummary(), Modifier.weight(1f))
+        }
+    }
+}
+
+private fun RunStatus.tone(): MetricTone =
+    when (this) {
+        RunStatus.SUCCESS -> MetricTone.Success
+        RunStatus.WARNING -> MetricTone.Warning
+        RunStatus.FAILED, RunStatus.CANCELLED -> MetricTone.Destructive
+        RunStatus.RUNNING, RunStatus.QUEUED -> MetricTone.Route
+        RunStatus.NEVER_RUN -> MetricTone.Neutral
+    }
+
+private fun BackupLog.finalByteSummary(): String {
+    val sent = raw.lineSequence().firstOrNull { it.startsWith("sent ") } ?: return "-"
+    return sent.substringBefore(" received").removePrefix("sent ").trim().ifBlank { "-" }
 }
 
 private fun BackupRunTrigger.label(): String =
@@ -1744,6 +2257,7 @@ private fun SettingsScreen(
     permissions: com.ttv20.rsyncbackup.permissions.AppPermissionState,
     repository: AppRepository,
     onRefreshPermissions: () -> Unit,
+    onSelectScreen: (Screen) -> Unit,
 ) {
     var settings by remember(state.settings) { mutableStateOf(state.settings) }
     var importText by rememberSaveable { mutableStateOf("") }
@@ -1753,13 +2267,28 @@ private fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("settings-scroll")
             .verticalScroll(rememberScrollState())
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         SectionHeader("Settings and import/export", state.settings.phoneHostname)
+        SectionCard {
+            Text("Tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            SettingsToolRow("SSH keys", "Generate, copy, import, or delete the app key", Icons.Outlined.Key) {
+                onSelectScreen(Screen.SshKeys)
+            }
+            SettingsToolRow("Tailscale", "Authenticate, test reachability, and reset state", Icons.Outlined.Cloud) {
+                onSelectScreen(Screen.Tailscale)
+            }
+        }
         PermissionSettingsSection(permissions, onRefreshPermissions)
         SectionCard {
+            ThemePreferenceSelector(settings.themePreference) { preference ->
+                val updated = settings.copy(themePreference = preference)
+                settings = updated
+                repository.update { it.copy(settings = updated) }
+            }
             OutlinedTextField(settings.phoneHostname, { settings = settings.copy(phoneHostname = it) }, label = { Text("Phone hostname") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(settings.selectedSsid.orEmpty(), { settings = settings.copy(selectedSsid = it.ifBlank { null }) }, label = { Text("Selected SSID") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(settings.logRetentionLimit.toString(), { settings = settings.copy(logRetentionLimit = it.toIntOrNull() ?: settings.logRetentionLimit) }, label = { Text("Log retention") }, modifier = Modifier.fillMaxWidth())
@@ -1795,6 +2324,49 @@ private fun SettingsScreen(
             }
             importError?.let { ErrorText(it) }
         }
+    }
+}
+
+@Composable
+private fun ThemePreferenceSelector(
+    selected: ThemePreference,
+    onChange: (ThemePreference) -> Unit,
+) {
+    Selector("Theme") {
+        ThemePreference.entries.forEach { preference ->
+            FilterChip(
+                selected = selected == preference,
+                onClick = { onChange(preference) },
+                label = {
+                    Text(
+                        when (preference) {
+                            ThemePreference.SYSTEM -> "System"
+                            ThemePreference.LIGHT -> "Light"
+                            ThemePreference.DARK -> "Dark"
+                        },
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsToolRow(label: String, detail: String, icon: ImageVector, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    ) {
+        EntityIcon(icon, MetricTone.Route)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(">", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary)
     }
 }
 
@@ -1952,6 +2524,33 @@ private fun ToggleRow(
 }
 
 @Composable
+private fun WarningRow(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f),
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Icon(Icons.Outlined.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+            }
+            Switch(checked = checked, onCheckedChange = onChange)
+        }
+    }
+}
+
+@Composable
 private fun PermissionRow(label: String, granted: Boolean, onOpen: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         StatusIcon(if (granted) RunStatus.SUCCESS else RunStatus.FAILED)
@@ -2003,14 +2602,15 @@ private fun Metric(label: String, value: String, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun ProgressMetric(label: String, value: String) {
+private fun ProgressMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
         shape = MaterialTheme.shapes.small,
+        modifier = modifier,
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(label, style = MaterialTheme.typography.labelSmall)
+            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -2019,14 +2619,19 @@ private fun phaseLabel(phase: RunProgressPhase): String =
     phase.name.lowercase().replace('_', ' ')
 
 @Composable
-private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
+private fun SectionCard(
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     OutlinedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(6.dp),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(if (selected) 12.dp else 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             content = content,
         )
     }
@@ -2043,13 +2648,14 @@ private fun SectionHeader(title: String, detail: String) {
 @Composable
 private fun SelectableBlock(text: String) {
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        color = if (MaterialTheme.colorScheme.background == Color(0xFF0B0F0E)) LogSurfaceDark else LogSurfaceLight,
         shape = MaterialTheme.shapes.small,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(12.dp),
         )
     }
