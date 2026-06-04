@@ -58,6 +58,25 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        create("fdroidRelease") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = null
+        }
+    }
+
+    sourceSets {
+        getByName("debug") {
+            assets.srcDir("src/sideload/assets")
+            jniLibs.srcDir("src/sideload/jniLibs")
+        }
+        getByName("release") {
+            assets.srcDir("src/sideload/assets")
+            jniLibs.srcDir("src/sideload/jniLibs")
+        }
+        getByName("fdroidRelease") {
+            assets.srcDir(layout.buildDirectory.get().asFile.resolve("generated/fdroidNativeManifest/assets"))
+        }
     }
 
     buildFeatures {
@@ -108,4 +127,59 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+val generateFdroidNativeManifest by tasks.registering {
+    val outputDir = layout.buildDirectory.dir("generated/fdroidNativeManifest/assets/native")
+    val sourceRefs = providers.environmentVariable("FDROID_NATIVE_SOURCE_REFS")
+        .orElse("pending-source-build")
+    val androidImage = providers.environmentVariable("RSYNC_BACKUP_ANDROID_IMAGE")
+        .orElse("cimg/android:2025.12")
+    val nativeImage = providers.environmentVariable("GO_ANDROID_IMAGE")
+        .orElse("golang:1.25-bookworm")
+
+    inputs.property("sourceRefs", sourceRefs)
+    inputs.property("androidImage", androidImage)
+    inputs.property("nativeImage", nativeImage)
+    outputs.dir(outputDir)
+
+    doLast {
+        val manifest = outputDir.get().asFile.resolve("fdroid-native-manifest.json")
+        manifest.parentFile.mkdirs()
+        manifest.writeText(
+            """
+            {
+              "schemaVersion": 1,
+              "variant": "fdroidRelease",
+              "nativeSourceRefs": "${sourceRefs.get()}",
+              "androidBuildImage": "${androidImage.get()}",
+              "nativeBuildImage": "${nativeImage.get()}",
+              "toolchainVersions": {},
+              "outputHashes": []
+            }
+            """.trimIndent() + "\n",
+        )
+    }
+}
+
+val checkFdroidNoPrebuiltNative by tasks.registering(Exec::class) {
+    commandLine(rootProject.file("scripts/fdroid-scan-source.sh"), "--gradle")
+}
+
+tasks.matching {
+    it.name == "preFdroidReleaseBuild" || it.name == "mergeFdroidReleaseAssets"
+}.configureEach {
+    dependsOn(checkFdroidNoPrebuiltNative)
+}
+
+tasks.matching {
+    it.name == "mergeFdroidReleaseAssets"
+}.configureEach {
+    dependsOn(generateFdroidNativeManifest)
+}
+
+tasks.matching {
+    it.name.contains("FdroidRelease") && it.name != "generateFdroidNativeManifest"
+}.configureEach {
+    dependsOn(generateFdroidNativeManifest)
 }

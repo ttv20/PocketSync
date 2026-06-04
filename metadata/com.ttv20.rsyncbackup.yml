@@ -1,0 +1,33 @@
+Categories:
+  - Connectivity
+  - System
+License: MIT
+AuthorName: ttv20
+SourceCode: https://codeberg.org/ttv20/PocketSync
+IssueTracker: https://codeberg.org/ttv20/PocketSync/issues
+Name: PocketSync
+Summary: Android backups to your own server with rsync, SSH, and built-in Tailscale client
+Description: |-
+  PocketSync backs up Android shared storage to a user-controlled server with
+  rsync over SSH. Tailscale connectivity is optional; LAN-only profiles can be
+  configured without Tailscale setup.
+
+  The app requests all-files access so it can back up shared storage selected by
+  the user. Restore is not included in the first release.
+
+AntiFeatures:
+  NonFreeNet:
+    en-US: Optional Tailscale use connects to Tailscale coordination services. LAN-only backup does not require Tailscale.
+
+Builds:
+  - versionName: 0.1.0
+    versionCode: 1
+    commit: TODO-tagged-release-commit
+    subdir: .
+    gradle:
+      - fdroidRelease
+    prebuild: |-
+      ./scripts/fdroid-scan-source.sh
+
+AutoUpdateMode: None
+UpdateCheckMode: None

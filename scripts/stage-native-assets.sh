@@ -3,8 +3,8 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 src="$project_dir/native/out/arm64-v8a"
-dst="$project_dir/app/src/main/assets/native/arm64-v8a"
-jni_dst="$project_dir/app/src/main/jniLibs/arm64-v8a"
+dst="$project_dir/app/src/sideload/assets/native/arm64-v8a"
+jni_dst="$project_dir/app/src/sideload/jniLibs/arm64-v8a"
 
 executables=(rsync ssh ssh-keygen ssh-keyscan tsnet-nc)
 
