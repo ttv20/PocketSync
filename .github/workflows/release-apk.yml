@@ -17,15 +17,72 @@ permissions:
 jobs:
   release:
     name: Build release APK
-    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'docker' }}
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'codeberg-medium' }}
+    container:
+      image: cimg/android:2025.12
     env:
       RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+      ANDROID_HOME: /home/circleci/android-sdk
+      ANDROID_SDK_ROOT: /home/circleci/android-sdk
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        run: |
+          set -euo pipefail
+
+          git init .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+
+          if [[ -n "${GITHUB_REF:-}" ]]; then
+            git fetch --depth=1 origin "$GITHUB_REF"
+          else
+            git fetch --depth=1 origin "$GITHUB_SHA"
+          fi
+
+          git checkout --detach FETCH_HEAD
+
+      - name: Install Node.js for actions
+        run: |
+          set -euo pipefail
+
+          if command -v node >/dev/null 2>&1; then
+            node --version
+            exit 0
+          fi
+
+          case "$(uname -m)" in
+            x86_64) node_arch=x64 ;;
+            aarch64|arm64) node_arch=arm64 ;;
+            *)
+              echo "Unsupported Node.js architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          node_tmp="${RUNNER_TEMP:-/tmp}/node"
+          mkdir -p "$node_tmp"
+          curl -fsSL https://nodejs.org/dist/latest-v20.x/SHASUMS256.txt -o "$node_tmp/SHASUMS256.txt"
+          node_pkg="$(
+            awk -v arch="$node_arch" '$2 ~ "^node-v.*-linux-" arch "\\.tar\\.xz$" { print $2; exit }' \
+              "$node_tmp/SHASUMS256.txt"
+          )"
+
+          if [[ -z "$node_pkg" ]]; then
+            echo "Could not find a Node.js linux-$node_arch tarball" >&2
+            exit 1
+          fi
+
+          curl -fsSL "https://nodejs.org/dist/latest-v20.x/$node_pkg" -o "$node_tmp/$node_pkg"
+          (cd "$node_tmp" && grep " $node_pkg$" SHASUMS256.txt | sha256sum -c -)
+
+          sudo tar -xJf "$node_tmp/$node_pkg" -C /opt
+          node_dir="/opt/${node_pkg%.tar.xz}"
+          echo "$node_dir/bin" >> "$GITHUB_PATH"
+          "$node_dir/bin/node" --version
 
       - name: Validate release tag
         run: |
@@ -39,8 +96,22 @@ jobs:
           echo "POCKETSYNC_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
           echo "POCKETSYNC_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
-      - name: Restore Gradle cache
+      - name: Restore Gradle cache on GitHub
+        if: ${{ github.server_url == 'https://github.com' }}
         uses: actions/cache@v4
+        with:
+          path: |
+            .gradle-cache/caches
+            .gradle-cache/wrapper
+            .gradle
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Restore Gradle cache on Forgejo
+        if: ${{ github.server_url != 'https://github.com' }}
+        continue-on-error: true
+        uses: https://code.forgejo.org/actions/cache@v4
         with:
           path: |
             .gradle-cache/caches
@@ -80,10 +151,10 @@ jobs:
           echo "POCKETSYNC_RELEASE_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Run unit tests
-        run: ./scripts/docker-test.sh
+        run: GRADLE_USER_HOME="$PWD/.gradle-cache" ./gradlew --no-daemon testDebugUnitTest
 
       - name: Build release APK
-        run: ./scripts/docker-build-release.sh
+        run: GRADLE_USER_HOME="$PWD/.gradle-cache" ./gradlew --no-daemon assembleRelease
 
       - name: Collect APK artifacts
         run: |
@@ -102,13 +173,30 @@ jobs:
 
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
 
-      - name: Upload workflow artifact
+      - name: Upload workflow artifact on GitHub
+        if: ${{ github.server_url == 'https://github.com' }}
         uses: actions/upload-artifact@v4
         with:
           name: PocketSync-${{ env.RELEASE_TAG }}-apk
           path: |
             dist/*.apk
             dist/SHA256SUMS.txt
+
+      - name: Upload workflow artifact on Forgejo
+        if: ${{ github.server_url != 'https://github.com' }}
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: PocketSync-${{ env.RELEASE_TAG }}-apk
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+
+      - name: Install GitHub CLI
+        if: ${{ github.server_url == 'https://github.com' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y gh
 
       - name: Publish GitHub Release
         if: ${{ github.server_url == 'https://github.com' }}
