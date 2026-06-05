@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+)
 
 package com.ttv20.rsyncbackup.ui
 
@@ -14,6 +17,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,10 +39,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Article
@@ -52,6 +60,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Error
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.OpenInBrowser
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Save
@@ -66,6 +75,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -87,6 +97,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -100,16 +111,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -147,6 +162,7 @@ import com.ttv20.rsyncbackup.model.ThemePreference
 import com.ttv20.rsyncbackup.model.requiresLan
 import com.ttv20.rsyncbackup.model.requiresTailscale
 import com.ttv20.rsyncbackup.model.effectiveTailscaleNodeName
+import com.ttv20.rsyncbackup.model.routeOrder
 import com.ttv20.rsyncbackup.model.suggestedTailscaleNodeName
 import com.ttv20.rsyncbackup.model.toExportDocument
 import com.ttv20.rsyncbackup.model.withUpdatedSettings
@@ -157,10 +173,15 @@ import com.ttv20.rsyncbackup.ssh.ScannedHostKey
 import com.ttv20.rsyncbackup.ssh.SshHostKeyScanner
 import com.ttv20.rsyncbackup.ssh.SshKeyManager
 import com.ttv20.rsyncbackup.ssh.SshPasswordSetupClient
+import com.ttv20.rsyncbackup.ssh.SshRemotePathBrowser
+import com.ttv20.rsyncbackup.ssh.SshRemotePathBrowserSession
+import com.ttv20.rsyncbackup.ssh.SshRemotePathListing
 import com.ttv20.rsyncbackup.storage.AppRepository
 import com.ttv20.rsyncbackup.storage.SecretStore
 import com.ttv20.rsyncbackup.tailscale.TailscaleManager
+import com.ttv20.rsyncbackup.tailscale.TailscalePeer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -179,6 +200,8 @@ private enum class Screen(val label: String, val icon: ImageVector) {
 }
 
 private val MainScreens = listOf(Screen.Dashboard, Screen.Profiles, Screen.Targets, Screen.Logs)
+private const val MIN_PORT = 1
+private const val MAX_PORT = 65535
 
 private enum class OnboardingStep(val title: String) {
     Welcome("Welcome"),
@@ -196,6 +219,13 @@ private enum class PendingOnboardingNavigation {
     Back,
     Skip,
 }
+
+private data class RemotePathBrowseRequest(
+    val title: String,
+    val startPath: String,
+    val target: TargetRecord,
+    val routes: List<Route>,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -301,52 +331,75 @@ fun RsyncBackupApp(
         onboardingActive = false
     }
 
+    val appLayoutDirection = when (stringResource(R.string.app_layout_direction).trim().lowercase(Locale.US)) {
+        "rtl" -> LayoutDirection.Rtl
+        else -> LayoutDirection.Ltr
+    }
     RsyncBackupTheme(themePreference = state.settings.themePreference) {
-        Surface(
-            color = MaterialTheme.colorScheme.background,
-            contentColor = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            val onboardingContent: (@Composable () -> Unit)? = if (onboardingActive) {
-                {
-                    OnboardingFlow(
-                        state = state,
-                        permissions = permissions,
-                        repository = repository,
-                        secretStore = secretStore,
-                        initialStepName = onboardingInitialStep,
-                        onRefreshPermissions = refreshPermissions,
-                        onExitToDashboard = exitOnboardingToDashboard,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+        CompositionLocalProvider(LocalLayoutDirection provides appLayoutDirection) {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                val onboardingContent: (@Composable () -> Unit)? = if (onboardingActive) {
+                    {
+                        OnboardingFlow(
+                            state = state,
+                            permissions = permissions,
+                            repository = repository,
+                            secretStore = secretStore,
+                            initialStepName = onboardingInitialStep,
+                            onRefreshPermissions = refreshPermissions,
+                            onExitToDashboard = exitOnboardingToDashboard,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                } else {
+                    null
                 }
-            } else {
-                null
-            }
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val wide = maxWidth >= 900.dp
-                if (wide) {
-                    Row(Modifier.fillMaxSize()) {
-                        NavigationRail(
-                            modifier = Modifier.fillMaxHeight(),
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ) {
-                            MainScreens.forEach { item ->
-                                NavigationRailItem(
-                                    selected = item == screen,
-                                    onClick = { selectScreen(item) },
-                                    icon = { Icon(item.icon, contentDescription = item.label) },
-                                    label = { Text(item.label, maxLines = 1) },
-                                )
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val wide = maxWidth >= 900.dp
+                    if (wide) {
+                        Row(Modifier.fillMaxSize()) {
+                            NavigationRail(
+                                modifier = Modifier.fillMaxHeight(),
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ) {
+                                MainScreens.forEach { item ->
+                                    NavigationRailItem(
+                                        selected = item == screen,
+                                        onClick = { selectScreen(item) },
+                                        icon = { Icon(item.icon, contentDescription = item.label) },
+                                        label = { Text(item.label, maxLines = 1) },
+                                    )
+                                }
                             }
+                            AppScaffold(
+                                screen = screen,
+                                state = state,
+                                permissions = permissions,
+                                repository = repository,
+                                secretStore = secretStore,
+                                compactNav = false,
+                                onSelect = selectScreen,
+                                onBack = backTarget?.let { target -> { selectedScreen = target.name } },
+                                onRefreshPermissions = refreshPermissions,
+                                onStartOnboarding = { initialStep ->
+                                    onboardingInitialStep = initialStep.name
+                                    onboardingActive = true
+                                },
+                                onboardingContent = onboardingContent,
+                            )
                         }
+                    } else {
                         AppScaffold(
                             screen = screen,
                             state = state,
                             permissions = permissions,
                             repository = repository,
                             secretStore = secretStore,
-                            compactNav = false,
+                            compactNav = true,
                             onSelect = selectScreen,
                             onBack = backTarget?.let { target -> { selectedScreen = target.name } },
                             onRefreshPermissions = refreshPermissions,
@@ -357,23 +410,6 @@ fun RsyncBackupApp(
                             onboardingContent = onboardingContent,
                         )
                     }
-                } else {
-                    AppScaffold(
-                        screen = screen,
-                        state = state,
-                        permissions = permissions,
-                        repository = repository,
-                        secretStore = secretStore,
-                        compactNav = true,
-                        onSelect = selectScreen,
-                        onBack = backTarget?.let { target -> { selectedScreen = target.name } },
-                        onRefreshPermissions = refreshPermissions,
-                        onStartOnboarding = { initialStep ->
-                            onboardingInitialStep = initialStep.name
-                            onboardingActive = true
-                        },
-                        onboardingContent = onboardingContent,
-                    )
                 }
             }
         }
@@ -390,6 +426,295 @@ private fun validScreenName(name: String?): String? =
             it.name.equals(value, ignoreCase = true) || it.label.equals(value, ignoreCase = true)
         }?.name
     }
+
+private fun sanitizePortText(value: String): String = value.filter { it.isDigit() }
+
+private fun portFromText(value: String): Int? =
+    value.toIntOrNull()?.takeIf { it in MIN_PORT..MAX_PORT }
+
+private fun normalizedHostUi(value: String): String =
+    value.trim().trimEnd('.').lowercase(Locale.US)
+
+@Composable
+private fun PortTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    isError: Boolean = portFromText(value) == null,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(sanitizePortText(it)) },
+        label = { Text("Port") },
+        isError = isError,
+        supportingText = if (isError) {
+            { Text("Enter a port from $MIN_PORT to $MAX_PORT") }
+        } else {
+            null
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun TailscaleHostPicker(
+    state: AppState,
+    secretStore: SecretStore,
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    fieldModifier: Modifier = Modifier.fillMaxWidth(),
+    loadButtonTag: String? = null,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val canLoadPeers = state.tailscale.isConfigured && state.tailscale.stateSecretAlias != null
+    val listNodeName = effectiveTailscaleNodeName(state)
+    var peers by remember(state.tailscale.stateSecretAlias, listNodeName) { mutableStateOf<List<TailscalePeer>>(emptyList()) }
+    var loading by rememberSaveable(state.tailscale.stateSecretAlias, listNodeName) { mutableStateOf(false) }
+    var loadAttempted by rememberSaveable(state.tailscale.stateSecretAlias, listNodeName) { mutableStateOf(false) }
+    var loadError by rememberSaveable(state.tailscale.stateSecretAlias, listNodeName) { mutableStateOf<String?>(null) }
+    var dropdownExpanded by rememberSaveable(state.tailscale.stateSecretAlias, listNodeName) { mutableStateOf(false) }
+    val filteredPeers = remember(peers, value) {
+        val query = value.trim()
+        if (query.isBlank()) {
+            peers
+        } else {
+            peers.filter { it.matchesHostQuery(query) }
+        }
+    }
+    val hasExactPeerMatch = peers.any { normalizedHostUi(it.host) == normalizedHostUi(value) }
+    val showCustomChoice = value.isNotBlank() && !hasExactPeerMatch
+
+    fun loadPeers() {
+        if (!canLoadPeers || loading) return
+        loading = true
+        loadAttempted = true
+        loadError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                TailscaleManager(context, secretStore).listPeers(
+                    nodeName = listNodeName,
+                    stateSecretAlias = state.tailscale.stateSecretAlias,
+                )
+            }
+            if (result.success) {
+                peers = result.peers
+                loadError = null
+            } else {
+                loadError = result.output.ifBlank { "Could not load Tailscale devices" }
+            }
+            loading = false
+        }
+    }
+
+    LaunchedEffect(canLoadPeers, state.tailscale.stateSecretAlias, listNodeName) {
+        if (canLoadPeers) {
+            if (dropdownExpanded) loadPeers()
+        } else {
+            peers = emptyList()
+            loading = false
+            loadAttempted = false
+            loadError = null
+            dropdownExpanded = false
+        }
+    }
+
+    LaunchedEffect(dropdownExpanded, filteredPeers.size, loading, loadError) {
+        if (dropdownExpanded) {
+            delay(120)
+            bringIntoViewRequester.bringIntoView()
+        }
+    }
+
+    Column(
+        modifier = modifier.bringIntoViewRequester(bringIntoViewRequester),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                dropdownExpanded = true
+            },
+            label = { Text(label) },
+            trailingIcon = {
+                IconButton(
+                    enabled = canLoadPeers,
+                    modifier = loadButtonTag?.let { Modifier.testTag(it) } ?: Modifier,
+                    onClick = {
+                        dropdownExpanded = !dropdownExpanded
+                        if (canLoadPeers && !loadAttempted) loadPeers()
+                    },
+                ) {
+                    Icon(Icons.Outlined.Cloud, contentDescription = "Show Tailscale devices")
+                }
+            },
+            modifier = fieldModifier.onFocusChanged { focusState ->
+                if (focusState.isFocused) {
+                    dropdownExpanded = true
+                    if (canLoadPeers && !loadAttempted) loadPeers()
+                }
+            },
+            singleLine = true,
+        )
+        if (dropdownExpanded) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 2.dp,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    item(key = "load") {
+                        TailscaleHostMenuRow(
+                            leadingIcon = Icons.Outlined.Sync,
+                            title = when {
+                                loading -> "Loading peers"
+                                peers.isEmpty() -> "Load peers"
+                                else -> "Refresh peers"
+                            },
+                            subtitle = if (canLoadPeers) "Search Tailscale devices or enter a custom host" else "Enter a host manually",
+                            enabled = canLoadPeers && !loading,
+                            onClick = { loadPeers() },
+                        )
+                    }
+                    items(filteredPeers, key = { it.host }) { peer ->
+                        TailscaleHostMenuRow(
+                            leadingIcon = Icons.Outlined.Cloud,
+                            title = peer.primaryLabel(),
+                            subtitle = peer.secondaryLabel(),
+                            selected = normalizedHostUi(value) == normalizedHostUi(peer.host),
+                            onClick = {
+                                onValueChange(peer.host)
+                                dropdownExpanded = false
+                            },
+                        )
+                    }
+                    if (showCustomChoice) {
+                        item(key = "custom") {
+                            TailscaleHostMenuRow(
+                                leadingIcon = Icons.Outlined.Edit,
+                                title = "Use custom host",
+                                subtitle = value.trim(),
+                                onClick = { dropdownExpanded = false },
+                            )
+                        }
+                    }
+                    if (!loading && loadAttempted && peers.isNotEmpty() && filteredPeers.isEmpty() && !showCustomChoice) {
+                        item(key = "empty-filter") {
+                            TailscaleHostMenuRow(
+                                title = "No matching Tailscale devices",
+                                subtitle = "Keep typing to use a custom host",
+                                enabled = false,
+                            )
+                        }
+                    }
+                    if (!loading && loadAttempted && peers.isEmpty()) {
+                        item(key = "empty-peers") {
+                            TailscaleHostMenuRow(
+                                title = "No Tailscale devices found",
+                                subtitle = "Enter a host manually or refresh peers",
+                                enabled = false,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        when {
+            !canLoadPeers -> Text(
+                "Tailscale is not connected; enter a host manually.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            loadError != null -> Text(
+                friendlyTailscaleError(loadError ?: ""),
+                style = MaterialTheme.typography.bodySmall,
+                color = toneColor(MetricTone.Destructive),
+            )
+            loadAttempted && !loading && peers.isEmpty() -> Text(
+                "No Tailscale devices found",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TailscaleHostMenuRow(
+    title: String,
+    subtitle: String? = null,
+    leadingIcon: ImageVector? = null,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit = {},
+) {
+    Surface(
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            leadingIcon?.let {
+                Icon(it, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                subtitle?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun TailscalePeer.primaryLabel(): String =
+    hostName?.takeIf { it.isNotBlank() } ?: dnsName?.takeIf { it.isNotBlank() } ?: host
+
+private fun TailscalePeer.secondaryLabel(): String {
+    val status = if (online) "online" else "offline"
+    val hostPart = host.takeIf { it != primaryLabel() }
+    val ipPart = tailscaleIps.firstOrNull()
+    return listOfNotNull(hostPart, ipPart, os?.takeIf { it.isNotBlank() }, status).joinToString(" - ")
+}
+
+private fun TailscalePeer.matchesHostQuery(query: String): Boolean {
+    val normalizedQuery = normalizedHostUi(query)
+    return listOf(host, hostName, dnsName, os)
+        .filterNotNull()
+        .any { normalizedHostUi(it).contains(normalizedQuery) } ||
+        tailscaleIps.any { it.contains(query.trim(), ignoreCase = true) }
+}
 
 private fun Uri.toSharedStoragePath(): String? =
     runCatching { DocumentsContract.getTreeDocumentId(this) }
@@ -595,6 +920,7 @@ private fun OnboardingFlow(
                 OnboardingStep.NewProfile -> OnboardingProfileStep(
                     state = state,
                     profile = profileDraft,
+                    secretStore = secretStore,
                     onProfileChange = { profileDraft = it },
                     onSave = {
                         saveProfileDraft()
@@ -708,6 +1034,9 @@ private fun OnboardingTargetStep(
     var setupTarget by remember(target.id) { mutableStateOf<String?>(null) }
     var setupMessage by remember(target.id) { mutableStateOf<String?>(null) }
     var setupError by remember(target.id) { mutableStateOf<String?>(null) }
+    var portText by rememberSaveable(target.id) { mutableStateOf(target.port.toString()) }
+    val portIsValid = portFromText(portText) != null
+    var browserRequest by remember(target.id) { mutableStateOf<RemotePathBrowseRequest?>(null) }
     val trustedEntries = state.trustedHostFingerprints.filter {
         it.targetId == target.id || it.targetId == target.fingerprintGroupId
     }
@@ -717,6 +1046,23 @@ private fun OnboardingTargetStep(
         publicKey = state.sshKeySettings.publicKey,
         hasTrustedHostKey = trustedEntries.isNotEmpty(),
     )
+    browserRequest?.let { request ->
+        RemotePathBrowserScreen(
+            title = request.title,
+            state = state,
+            target = request.target,
+            routes = request.routes,
+            startPath = request.startPath,
+            secretStore = secretStore,
+            onPathSelected = { selectedPath ->
+                onTargetChange(target.copy(defaultRemotePath = selectedPath))
+                browserRequest = null
+            },
+            onBack = { browserRequest = null },
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -729,23 +1075,38 @@ private fun OnboardingTargetStep(
             OutlinedTextField(target.name, { onTargetChange(target.copy(name = it)) }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(target.user, { onTargetChange(target.copy(user = it)) }, label = { Text("User") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(target.lanHost, { onTargetChange(target.copy(lanHost = it)) }, label = { Text("LAN host") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                target.port.toString(),
-                { value -> onTargetChange(target.copy(port = value.toIntOrNull()?.coerceIn(1, 65535) ?: target.port)) },
-                label = { Text("Port") },
+            PortTextField(
+                value = portText,
+                onValueChange = { value ->
+                    portText = value
+                    portFromText(value)?.let { onTargetChange(target.copy(port = it)) }
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
-                target.tailscaleHost.orEmpty(),
-                { onTargetChange(target.copy(tailscaleHost = it.ifBlank { null })) },
-                label = { Text("Optional Tailscale host") },
+            TailscaleHostPicker(
+                state = state,
+                secretStore = secretStore,
+                value = target.tailscaleHost.orEmpty(),
+                onValueChange = { onTargetChange(target.copy(tailscaleHost = it.ifBlank { null })) },
+                label = "Optional Tailscale host",
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
-                target.defaultRemotePath,
-                { onTargetChange(target.copy(defaultRemotePath = it)) },
+            RemotePathPickerField(
+                value = target.defaultRemotePath,
+                onValueChange = { onTargetChange(target.copy(defaultRemotePath = it)) },
                 label = { Text("Default remote path") },
-                modifier = Modifier.fillMaxWidth(),
+                target = target,
+                routes = browseRoutesForTarget(target),
+                enabled = portIsValid,
+                browseButtonTag = "onboarding-target-default-remote-path-browse-button",
+                onBrowse = {
+                    browserRequest = RemotePathBrowseRequest(
+                        title = "Default remote path",
+                        startPath = target.defaultRemotePath,
+                        target = target,
+                        routes = browseRoutesForTarget(target),
+                    )
+                },
             )
         }
         SectionCard {
@@ -753,7 +1114,7 @@ private fun OnboardingTargetStep(
             Text("LAN and Tailscale addresses share fingerprint group ${target.fingerprintGroupId}")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(
-                    enabled = scanTarget == null && target.lanHost.isNotBlank(),
+                    enabled = scanTarget == null && portIsValid && target.lanHost.isNotBlank(),
                     modifier = Modifier.testTag("onboarding-target-scan-lan-button"),
                     onClick = {
                         scanTarget = "LAN"
@@ -784,7 +1145,7 @@ private fun OnboardingTargetStep(
                     Text(if (scanTarget == "LAN") "Scanning" else "Scan LAN")
                 }
                 FilledTonalButton(
-                    enabled = scanTarget == null && !target.tailscaleHost.isNullOrBlank(),
+                    enabled = scanTarget == null && portIsValid && !target.tailscaleHost.isNullOrBlank(),
                     modifier = Modifier.testTag("onboarding-target-scan-tailscale-button"),
                     onClick = {
                         val host = target.tailscaleHost ?: return@FilledTonalButton
@@ -901,7 +1262,7 @@ private fun OnboardingTargetStep(
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    enabled = setupTarget == null && setupPassword.isNotBlank() && target.lanHost.isNotBlank(),
+                    enabled = setupTarget == null && portIsValid && setupPassword.isNotBlank() && target.lanHost.isNotBlank(),
                     modifier = Modifier.testTag("onboarding-target-install-over-lan-button"),
                     onClick = {
                         val publicKey = state.sshKeySettings.publicKey
@@ -951,7 +1312,7 @@ private fun OnboardingTargetStep(
                     Text(if (setupTarget == "LAN") "Installing" else "Install over LAN")
                 }
                 OutlinedButton(
-                    enabled = setupTarget == null && setupPassword.isNotBlank() && !target.tailscaleHost.isNullOrBlank(),
+                    enabled = setupTarget == null && portIsValid && setupPassword.isNotBlank() && !target.tailscaleHost.isNullOrBlank(),
                     modifier = Modifier.testTag("onboarding-target-install-over-tailscale-button"),
                     onClick = {
                         val publicKey = state.sshKeySettings.publicKey
@@ -1023,7 +1384,11 @@ private fun OnboardingTargetStep(
                 FeedbackBanner("Public key install failed", it, MetricTone.Destructive)
             }
         }
-        Button(onClick = onSave, modifier = Modifier.testTag("onboarding-save-target-button")) {
+        Button(
+            onClick = onSave,
+            enabled = portIsValid,
+            modifier = Modifier.testTag("onboarding-save-target-button"),
+        ) {
             Icon(Icons.Outlined.Save, contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text("Save target")
@@ -1035,9 +1400,29 @@ private fun OnboardingTargetStep(
 private fun OnboardingProfileStep(
     state: AppState,
     profile: BackupProfile,
+    secretStore: SecretStore,
     onProfileChange: (BackupProfile) -> Unit,
     onSave: () -> Unit,
 ) {
+    val selectedTarget = state.targets.firstOrNull { it.id == profile.targetId }
+    var browserRequest by remember(profile.id) { mutableStateOf<RemotePathBrowseRequest?>(null) }
+    browserRequest?.let { request ->
+        RemotePathBrowserScreen(
+            title = request.title,
+            state = state,
+            target = request.target,
+            routes = request.routes,
+            startPath = request.startPath,
+            secretStore = secretStore,
+            onPathSelected = { selectedPath ->
+                onProfileChange(profile.copy(remotePath = selectedPath))
+                browserRequest = null
+            },
+            onBack = { browserRequest = null },
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1066,10 +1451,26 @@ private fun OnboardingProfileStep(
                     )
                 }
             }
-            OutlinedTextField(profile.remotePath, { onProfileChange(profile.copy(remotePath = it)) }, label = { Text("Remote path") }, modifier = Modifier.fillMaxWidth())
+            RemotePathPickerField(
+                value = profile.remotePath,
+                onValueChange = { onProfileChange(profile.copy(remotePath = it)) },
+                label = { Text("Remote path") },
+                target = selectedTarget,
+                routes = profile.targetMode.routeOrder(),
+                browseButtonTag = "onboarding-profile-remote-path-browse-button",
+                onBrowse = {
+                    val target = selectedTarget ?: return@RemotePathPickerField
+                    browserRequest = RemotePathBrowseRequest(
+                        title = "Remote path",
+                        startPath = profile.remotePath,
+                        target = target,
+                        routes = profile.targetMode.routeOrder(),
+                    )
+                },
+            )
             TargetModeSelector(
                 targetMode = profile.targetMode,
-                target = state.targets.firstOrNull { it.id == profile.targetId },
+                target = selectedTarget,
             ) {
                 onProfileChange(profile.copy(targetMode = it))
             }
@@ -1354,6 +1755,7 @@ private fun AppScaffold(
                     Screen.Profiles -> ProfilesScreen(
                         state,
                         repository,
+                        secretStore,
                         onOpenDashboard = { onSelect(Screen.Dashboard) },
                         onDetailActiveChange = { active, back ->
                             detailScreenActive = active
@@ -1935,6 +2337,7 @@ private fun scheduleLabel(schedule: BackupSchedule): String =
 private fun ProfilesScreen(
     state: AppState,
     repository: AppRepository,
+    secretStore: SecretStore,
     onOpenDashboard: () -> Unit,
     onDetailActiveChange: (Boolean, (() -> Unit)?) -> Unit,
 ) {
@@ -1996,6 +2399,7 @@ private fun ProfilesScreen(
                 closeEditor()
             },
             onAddTarget = addTargetFromProfile,
+            secretStore = secretStore,
             onBack = closeEditor,
             onBackHandlerChange = { editorBackHandler = it },
             isDraft = isDraft,
@@ -2089,6 +2493,7 @@ private fun ProfileEditor(
     onSave: (BackupProfile) -> Unit,
     onDelete: () -> Unit,
     onAddTarget: () -> TargetRecord,
+    secretStore: SecretStore,
     onBack: (() -> Unit)? = null,
     onBackHandlerChange: ((() -> Unit)?) -> Unit,
     isDraft: Boolean,
@@ -2101,6 +2506,7 @@ private fun ProfileEditor(
         mutableStateOf<List<com.ttv20.rsyncbackup.model.ValidationIssue>>(emptyList())
     }
     var showUnsavedPrompt by rememberSaveable(profile.id) { mutableStateOf(false) }
+    var browserRequest by remember(profile.id) { mutableStateOf<RemotePathBrowseRequest?>(null) }
     val selectedTarget = state.targets.firstOrNull { it.id == editing.targetId }
     val issues = ProfileValidator.validate(editing, state)
     val canSave = issues.none { it.severity == Severity.ERROR }
@@ -2129,7 +2535,9 @@ private fun ProfileEditor(
         }
     }
     val requestBackState = rememberUpdatedState<() -> Unit> {
-        if (hasUnsavedChanges) {
+        if (browserRequest != null) {
+            browserRequest = null
+        } else if (hasUnsavedChanges) {
             showUnsavedPrompt = true
         } else {
             onBack?.invoke()
@@ -2156,6 +2564,24 @@ private fun ProfileEditor(
             },
             onDismiss = { showUnsavedPrompt = false },
         )
+    }
+
+    browserRequest?.let { request ->
+        RemotePathBrowserScreen(
+            title = request.title,
+            state = state,
+            target = request.target,
+            routes = request.routes,
+            startPath = request.startPath,
+            secretStore = secretStore,
+            onPathSelected = { selectedPath ->
+                editing = editing.copy(remotePath = selectedPath)
+                browserRequest = null
+            },
+            onBack = { browserRequest = null },
+            modifier = modifier.fillMaxSize(),
+        )
+        return
     }
 
     Column(
@@ -2257,13 +2683,23 @@ private fun ProfileEditor(
                         modifier = Modifier.testTag("profile-add-target-button"),
                     )
                 }
-                OutlinedTextField(
-                    editing.remotePath,
-                    { editing = editing.copy(remotePath = it) },
+                RemotePathPickerField(
+                    value = editing.remotePath,
+                    onValueChange = { editing = editing.copy(remotePath = it) },
                     label = { Text("Remote path") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("profile-remote-path-field"),
+                    target = selectedTarget,
+                    routes = editing.targetMode.routeOrder(),
+                    fieldTag = "profile-remote-path-field",
+                    browseButtonTag = "profile-remote-path-browse-button",
+                    onBrowse = {
+                        val target = selectedTarget ?: return@RemotePathPickerField
+                        browserRequest = RemotePathBrowseRequest(
+                            title = "Remote path",
+                            startPath = editing.remotePath,
+                            target = target,
+                            routes = editing.targetMode.routeOrder(),
+                        )
+                    },
                 )
                 TargetModeSelector(
                     targetMode = editing.targetMode,
@@ -2446,10 +2882,15 @@ private fun TargetEditor(
     var setupMessage by remember(target.id) { mutableStateOf<String?>(null) }
     var setupError by remember(target.id) { mutableStateOf<String?>(null) }
     var showUnsavedPrompt by rememberSaveable(target.id) { mutableStateOf(false) }
+    var portText by rememberSaveable(target.id) { mutableStateOf(target.port.toString()) }
+    val portIsValid = portFromText(portText) != null
+    var browserRequest by remember(target.id) { mutableStateOf<RemotePathBrowseRequest?>(null) }
     val scrollState = rememberScrollState()
-    val hasUnsavedChanges = isDraft || editing != target
+    val hasUnsavedChanges = isDraft || editing != target || portText != editing.port.toString()
     val requestBackState = rememberUpdatedState<() -> Unit> {
-        if (hasUnsavedChanges) {
+        if (browserRequest != null) {
+            browserRequest = null
+        } else if (hasUnsavedChanges) {
             showUnsavedPrompt = true
         } else {
             onBack?.invoke()
@@ -2486,7 +2927,7 @@ private fun TargetEditor(
     if (showUnsavedPrompt) {
         UnsavedChangesDialog(
             entityName = "target",
-            saveEnabled = true,
+            saveEnabled = portIsValid,
             onSave = {
                 showUnsavedPrompt = false
                 onSave(editing)
@@ -2499,6 +2940,24 @@ private fun TargetEditor(
         )
     }
 
+    browserRequest?.let { request ->
+        RemotePathBrowserScreen(
+            title = request.title,
+            state = state,
+            target = request.target,
+            routes = request.routes,
+            startPath = request.startPath,
+            secretStore = secretStore,
+            onPathSelected = { selectedPath ->
+                editing = editing.copy(defaultRemotePath = selectedPath)
+                browserRequest = null
+            },
+            onBack = { browserRequest = null },
+            modifier = modifier.fillMaxSize(),
+        )
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxHeight(),
@@ -2508,7 +2967,7 @@ private fun TargetEditor(
             onBack = { requestBackState.value.invoke() },
             backLabel = cancelLabel,
             onSave = { onSave(editing) },
-            saveEnabled = true,
+            saveEnabled = portIsValid,
             saveButtonTag = "target-save-button",
         )
         Column(
@@ -2547,22 +3006,44 @@ private fun TargetEditor(
                     .fillMaxWidth()
                     .testTag("target-lan-host-field"),
             )
-            OutlinedTextField(editing.tailscaleHost.orEmpty(), { editing = editing.copy(tailscaleHost = it.ifBlank { null }) }, label = { Text("Fallback Tailscale host") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(
-                value = editing.port.toString(),
-                onValueChange = { value -> editing = editing.copy(port = value.toIntOrNull()?.coerceIn(1, 65535) ?: editing.port) },
-                label = { Text("Port") },
+            TailscaleHostPicker(
+                state = state,
+                secretStore = secretStore,
+                value = editing.tailscaleHost.orEmpty(),
+                onValueChange = { editing = editing.copy(tailscaleHost = it.ifBlank { null }) },
+                label = "Fallback Tailscale host",
+                modifier = Modifier.fillMaxWidth(),
+                fieldModifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("target-tailscale-host-field"),
+            )
+            PortTextField(
+                value = portText,
+                onValueChange = { value ->
+                    portText = value
+                    portFromText(value)?.let { editing = editing.copy(port = it) }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("target-port-field"),
             )
-            OutlinedTextField(
-                editing.defaultRemotePath,
-                { editing = editing.copy(defaultRemotePath = it) },
+            RemotePathPickerField(
+                value = editing.defaultRemotePath,
+                onValueChange = { editing = editing.copy(defaultRemotePath = it) },
                 label = { Text("Default remote path") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("target-default-remote-path-field"),
+                target = editing,
+                routes = browseRoutesForTarget(editing),
+                enabled = portIsValid,
+                fieldTag = "target-default-remote-path-field",
+                browseButtonTag = "target-default-remote-path-browse-button",
+                onBrowse = {
+                    browserRequest = RemotePathBrowseRequest(
+                        title = "Default remote path",
+                        startPath = editing.defaultRemotePath,
+                        target = editing,
+                        routes = browseRoutesForTarget(editing),
+                    )
+                },
             )
         }
         SectionCard {
@@ -2570,7 +3051,7 @@ private fun TargetEditor(
             Text("LAN and Tailscale addresses share fingerprint group ${editing.fingerprintGroupId}")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(
-                    enabled = scanTarget == null && editing.lanHost.isNotBlank(),
+                    enabled = scanTarget == null && portIsValid && editing.lanHost.isNotBlank(),
                     modifier = Modifier.testTag("target-scan-lan-button"),
                     onClick = {
                         scanTarget = "LAN"
@@ -2601,7 +3082,7 @@ private fun TargetEditor(
                     Text(if (scanTarget == "LAN") "Scanning" else "Scan LAN")
                 }
                 FilledTonalButton(
-                    enabled = scanTarget == null && !editing.tailscaleHost.isNullOrBlank(),
+                    enabled = scanTarget == null && portIsValid && !editing.tailscaleHost.isNullOrBlank(),
                     onClick = {
                         val host = editing.tailscaleHost ?: return@FilledTonalButton
                         scanTarget = "Tailscale"
@@ -2718,7 +3199,7 @@ private fun TargetEditor(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    enabled = setupTarget == null && setupPassword.isNotBlank() && editing.lanHost.isNotBlank(),
+                    enabled = setupTarget == null && portIsValid && setupPassword.isNotBlank() && editing.lanHost.isNotBlank(),
                     modifier = Modifier.testTag("target-install-over-lan-button"),
                     onClick = {
                         val publicKey = state.sshKeySettings.publicKey
@@ -2768,7 +3249,7 @@ private fun TargetEditor(
                     Text(if (setupTarget == "LAN") "Installing" else "Install over LAN")
                 }
                 OutlinedButton(
-                    enabled = setupTarget == null && setupPassword.isNotBlank() && !editing.tailscaleHost.isNullOrBlank(),
+                    enabled = setupTarget == null && portIsValid && setupPassword.isNotBlank() && !editing.tailscaleHost.isNullOrBlank(),
                     onClick = {
                         val publicKey = state.sshKeySettings.publicKey
                         if (publicKey == null) {
@@ -3280,13 +3761,17 @@ private fun TailscaleScreen(state: AppState, repository: AppRepository, secretSt
             }
         }
         SectionCard {
-            OutlinedTextField(
-                testHost,
-                { testHost = it },
-                label = { Text("Target Tailscale host") },
-                modifier = Modifier
+            TailscaleHostPicker(
+                state = state,
+                secretStore = secretStore,
+                value = testHost,
+                onValueChange = { testHost = it },
+                label = "Target Tailscale host",
+                modifier = Modifier.fillMaxWidth(),
+                fieldModifier = Modifier
                     .fillMaxWidth()
                     .testTag("tailscale-test-host-field"),
+                loadButtonTag = "tailscale-load-peers-button",
             )
             OutlinedTextField(
                 testPort,
@@ -3830,6 +4315,452 @@ private fun TargetModeSelector(
         }
     }
 }
+
+@Composable
+private fun RemotePathPickerField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: @Composable () -> Unit,
+    target: TargetRecord?,
+    routes: List<Route>,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    fieldTag: String? = null,
+    browseButtonTag: String? = null,
+    onBrowse: () -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label,
+            modifier = Modifier
+                .weight(1f)
+                .then(fieldTag?.let { Modifier.testTag(it) } ?: Modifier),
+        )
+        OutlinedButton(
+            enabled = enabled && target != null && routes.isNotEmpty(),
+            onClick = onBrowse,
+            modifier = browseButtonTag?.let { Modifier.testTag(it) } ?: Modifier,
+        ) {
+            Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Browse")
+        }
+    }
+}
+
+@Composable
+private fun RemotePathBrowserScreen(
+    title: String,
+    state: AppState,
+    target: TargetRecord,
+    routes: List<Route>,
+    startPath: String,
+    secretStore: SecretStore,
+    onPathSelected: (String) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val browser = remember(context, secretStore) { SshRemotePathBrowser(context, secretStore) }
+    var draftPath by rememberSaveable(target.id, startPath) { mutableStateOf(startPath.trim().ifBlank { "~" }) }
+    var listing by remember(target.id, startPath) { mutableStateOf<SshRemotePathListing?>(null) }
+    var session by remember(target.id, startPath) { mutableStateOf<SshRemotePathBrowserSession?>(null) }
+    val activeSession = rememberUpdatedState(session)
+    var loading by rememberSaveable(target.id, startPath) { mutableStateOf(false) }
+    var connecting by rememberSaveable(target.id, startPath) { mutableStateOf(true) }
+    var error by rememberSaveable(target.id, startPath) { mutableStateOf<String?>(null) }
+    var showHidden by rememberSaveable(target.id) { mutableStateOf(false) }
+    var loadingPath by rememberSaveable(target.id, startPath) { mutableStateOf<String?>(null) }
+
+    fun load(path: String, rowPath: String? = null) {
+        val currentSession = session ?: return
+        val requestedPath = path.trim().ifBlank { "~" }
+        if (rowPath == null) {
+            draftPath = requestedPath
+        }
+        loading = true
+        loadingPath = rowPath
+        error = null
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    currentSession.listDirectories(requestedPath, showHidden)
+                }
+            }.onSuccess { result ->
+                listing = result
+                draftPath = result.resolvedPath
+                error = null
+            }.onFailure { failure ->
+                error = failure.message ?: "Remote path browser failed"
+                listing?.resolvedPath?.let { currentPath ->
+                    draftPath = currentPath
+                }
+            }
+            loadingPath = null
+            loading = false
+        }
+    }
+
+    BackHandler { onBack() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activeSession.value?.let { closingSession ->
+                scope.launch(Dispatchers.IO) {
+                    closingSession.close()
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(target.id, target.user, target.lanHost, target.tailscaleHost, target.port, routes, state.sshKeySettings, state.trustedHostFingerprints, state.tailscale) {
+        val previousSession = session
+        session = null
+        previousSession?.let { closingSession ->
+            withContext(Dispatchers.IO) { closingSession.close() }
+        }
+        connecting = true
+        loading = true
+        loadingPath = null
+        error = null
+        listing = null
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val openedSession = browser.openSession(state, target, routes)
+                openedSession to openedSession.listDirectories(draftPath, showHidden)
+            }
+        }.onSuccess { (openedSession, firstListing) ->
+            session = openedSession
+            listing = firstListing
+            draftPath = firstListing.resolvedPath
+            error = null
+        }.onFailure { failure ->
+            error = failure.message ?: "Remote path browser failed"
+        }
+        connecting = false
+        loading = false
+    }
+
+    LaunchedEffect(showHidden) {
+        session?.let { currentSession ->
+            loading = true
+            loadingPath = null
+            error = null
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    currentSession.listDirectories(draftPath, showHidden)
+                }
+            }.onSuccess { result ->
+                listing = result
+                draftPath = result.resolvedPath
+                error = null
+            }.onFailure { failure ->
+                error = failure.message ?: "Remote path browser failed"
+                listing?.resolvedPath?.let { currentPath ->
+                    draftPath = currentPath
+                }
+            }
+            loading = false
+        }
+    }
+
+    val selectedPath = listing?.resolvedPath ?: draftPath.trim().ifBlank { "~" }
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("remote-path-browser-screen"),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 2.dp,
+            shadowElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Outlined.ArrowBack, contentDescription = "Back")
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${target.user}@${target.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    StatusBadge(
+                        label = listing?.let { "via ${routeLabel(it.route)}" }
+                            ?: when {
+                                connecting -> "Connecting"
+                                error != null -> "Failed"
+                                else -> "Ready"
+                            },
+                        tone = if (listing != null || error == null) MetricTone.Route else MetricTone.Destructive,
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = draftPath,
+                        onValueChange = { draftPath = it },
+                        label = { Text("Current path") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("remote-path-browser-current-path-field"),
+                    )
+                    OutlinedButton(
+                        enabled = !loading && session != null,
+                        onClick = { load(draftPath) },
+                        modifier = Modifier.testTag("remote-path-browser-go-button"),
+                    ) {
+                        Text("Go")
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    ToggleRow(
+                        label = "Show hidden folders",
+                        checked = showHidden,
+                        switchTag = "remote-path-browser-hidden-switch",
+                    ) { showHidden = it }
+                }
+                listing?.let { result ->
+                    Text(
+                        "${result.resolvedPath} on ${result.host}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (connecting || (loading && listing == null)) {
+                FeedbackBanner(
+                    title = if (connecting) "Opening SSH session" else "Browsing server",
+                    detail = if (connecting) {
+                        "Connecting to ${target.name}"
+                    } else {
+                        "Loading $draftPath"
+                    },
+                    tone = MetricTone.Route,
+                )
+            } else if (loading && loadingPath == null) {
+                RemotePathLoadingStrip("Refreshing folders")
+            }
+            error?.let {
+                FeedbackBanner(
+                    title = "Browse failed",
+                    detail = conciseFeedbackMessage(it),
+                    tone = MetricTone.Destructive,
+                )
+            }
+            listing?.let { result ->
+                RemotePathList(
+                    listing = result,
+                    loading = loading,
+                    loadingPath = loadingPath,
+                    onOpenPath = { path -> load(path, rowPath = path) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(12.dp),
+            ) {
+                TextButton(onClick = onBack) {
+                    Text("Cancel")
+                }
+                Button(
+                    enabled = !loading && selectedPath.isNotBlank() && listing != null,
+                    onClick = { onPathSelected(selectedPath) },
+                    modifier = Modifier.testTag("remote-path-browser-use-button"),
+                ) {
+                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Use path")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemotePathList(
+    listing: SshRemotePathListing,
+    loading: Boolean,
+    loadingPath: String?,
+    onOpenPath: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("remote-path-browser-list"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        listing.parentPath?.let { parentPath ->
+            item(key = "parent") {
+                RemotePathRow(
+                    label = "Parent folder",
+                    path = parentPath,
+                    enabled = !loading,
+                    loading = loadingPath == parentPath,
+                    parent = true,
+                    onClick = { onOpenPath(parentPath) },
+                )
+            }
+        }
+        items(listing.entries, key = { it.path }) { entry ->
+            RemotePathRow(
+                label = entry.name,
+                path = entry.path,
+                enabled = !loading,
+                loading = loadingPath == entry.path,
+                parent = false,
+                onClick = { onOpenPath(entry.path) },
+            )
+        }
+        if (listing.entries.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    "No child folders",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemotePathRow(
+    label: String,
+    path: String,
+    enabled: Boolean,
+    loading: Boolean,
+    parent: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    if (parent) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.Folder,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    path,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (loading) {
+                Text(
+                    "Opening",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+            } else {
+                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemotePathLoadingStrip(message: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(message, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
+    }
+}
+
+private fun browseRoutesForTarget(target: TargetRecord): List<Route> =
+    buildList {
+        if (target.lanHost.isNotBlank()) add(Route.LAN)
+        if (!target.tailscaleHost.isNullOrBlank()) add(Route.TAILSCALE)
+    }
+
+private fun routeLabel(route: Route): String =
+    when (route) {
+        Route.LAN -> "LAN"
+        Route.TAILSCALE -> "Tailscale"
+    }
 
 @Composable
 private fun ScheduleEditor(schedule: BackupSchedule, onChange: (BackupSchedule) -> Unit) {
