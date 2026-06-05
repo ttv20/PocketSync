@@ -71,7 +71,8 @@ data class TargetRecord(
     val lanHost: String,
     val tailscaleHost: String? = null,
     val port: Int = 22,
-    val defaultRemotePath: String,
+    val defaultRemotePath: String = "",
+    val sshKeySettings: GlobalSshKeySettings? = null,
     val fingerprintGroupId: String = id,
     val publicKeyInstalledAt: String? = null,
     val keyOnlyLoginVerifiedAt: String? = null,
@@ -305,31 +306,12 @@ object InitialData {
     const val DEFAULT_PROFILE_ID = "profile-phone"
 
     fun appState(defaultExcludes: String, now: String = Instant.now().toString()): AppState {
-        val target = TargetRecord(
-            id = DEFAULT_TARGET_ID,
-            name = "Home backup target",
-            user = "ttv20",
-            lanHost = "192.168.3.200",
-            tailscaleHost = null,
-            port = 22,
-            defaultRemotePath = "/mnt/backup/phone",
-        )
-        val profile = BackupProfile(
-            id = DEFAULT_PROFILE_ID,
-            name = "Phone shared storage",
-            sourcePath = "/storage/emulated/0",
-            targetId = target.id,
-            remotePath = target.defaultRemotePath,
-            targetMode = TargetMode.LAN_ONLY,
-            excludes = defaultExcludes.trimEnd(),
-            status = ProfileStatus(lastMessage = "Created $now"),
-        )
-        return AppState(
-            targets = listOf(target),
-            profiles = listOf(profile),
-        )
+        return AppState()
     }
 }
+
+fun TargetRecord.resolvedSshKeySettings(globalSettings: GlobalSshKeySettings): GlobalSshKeySettings =
+    sshKeySettings?.takeIf { it.privateKeySecretAlias != null || it.publicKey != null } ?: globalSettings
 
 fun TargetMode.requiresTailscale(): Boolean = when (this) {
     TargetMode.LAN_ONLY -> false

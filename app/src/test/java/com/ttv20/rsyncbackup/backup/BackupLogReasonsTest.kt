@@ -1,8 +1,11 @@
 package com.ttv20.rsyncbackup.backup
 
 import com.ttv20.rsyncbackup.model.BackupEndReason
+import com.ttv20.rsyncbackup.model.BackupProfile
 import com.ttv20.rsyncbackup.model.BackupRunTrigger
 import com.ttv20.rsyncbackup.model.RunStatus
+import com.ttv20.rsyncbackup.model.TargetMode
+import com.ttv20.rsyncbackup.model.TargetRecord
 import com.ttv20.rsyncbackup.storage.AppRepository
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -20,6 +23,24 @@ class BackupLogReasonsTest {
             defaultExcludes = "cache/\n",
         )
         repository.loadBlocking()
+        val target = TargetRecord(
+            id = "target-home",
+            name = "Home backup target",
+            user = "ttv20",
+            lanHost = "192.168.3.200",
+        )
+        repository.upsertTarget(target)
+        repository.upsertProfile(
+            BackupProfile(
+                id = "profile-phone",
+                name = "Phone shared storage",
+                sourcePath = "/storage/emulated/0",
+                targetId = target.id,
+                remotePath = "/mnt/backup/phone",
+                targetMode = TargetMode.LAN_ONLY,
+                excludes = "cache/",
+            ),
+        )
         val profile = repository.state.value.profiles.single()
 
         val log = repository.recordConstraintBlockedBackup(

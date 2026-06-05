@@ -9,6 +9,8 @@ import com.ttv20.rsyncbackup.model.InitialData
 import com.ttv20.rsyncbackup.model.RunProgressPhase
 import com.ttv20.rsyncbackup.model.RunProgressState
 import com.ttv20.rsyncbackup.model.RunStatus
+import com.ttv20.rsyncbackup.model.TargetMode
+import com.ttv20.rsyncbackup.model.TargetRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -125,7 +127,7 @@ class AppRepositoryQueueTest {
     @Test
     fun loadRemovesAbandonedOnboardingDraftProfileAndTarget() {
         val dataFile = temporaryFolder.newFile("state.json")
-        val base = InitialData.appState("cache/")
+        val base = seededState()
         val defaultTarget = base.targets.single()
         val duplicateTarget = defaultTarget.copy(
             id = "onboarding-target",
@@ -161,6 +163,33 @@ class AppRepositoryQueueTest {
             defaultExcludes = "cache/\n",
         )
         repository.loadBlocking()
+        if (repository.state.value.profiles.isEmpty()) {
+            repository.update { seededState() }
+        }
         return repository
+    }
+
+    private fun seededState(): AppState {
+        val target = TargetRecord(
+            id = InitialData.DEFAULT_TARGET_ID,
+            name = "Home backup target",
+            user = "ttv20",
+            lanHost = "192.168.3.200",
+            port = 22,
+            defaultRemotePath = "/mnt/backup/phone",
+        )
+        val profile = BackupProfile(
+            id = InitialData.DEFAULT_PROFILE_ID,
+            name = "Phone shared storage",
+            sourcePath = "/storage/emulated/0",
+            targetId = target.id,
+            remotePath = "/mnt/backup/phone",
+            targetMode = TargetMode.LAN_ONLY,
+            excludes = "cache/",
+        )
+        return AppState(
+            targets = listOf(target),
+            profiles = listOf(profile),
+        )
     }
 }

@@ -2,8 +2,10 @@ package com.ttv20.rsyncbackup
 
 import android.app.Application
 import com.ttv20.rsyncbackup.backup.NativeBinaryManager
+import com.ttv20.rsyncbackup.model.GlobalSshKeySettings
 import com.ttv20.rsyncbackup.model.withDetectedPhoneHostname
 import com.ttv20.rsyncbackup.settings.DeviceHostnameReader
+import com.ttv20.rsyncbackup.ssh.SshKeyManager
 import com.ttv20.rsyncbackup.storage.AndroidKeystoreSecretStore
 import com.ttv20.rsyncbackup.storage.AppRepository
 import com.ttv20.rsyncbackup.storage.SecretStore
@@ -21,13 +23,33 @@ class RsyncBackupApplication : Application() {
         val defaultExcludes = resources.openRawResource(R.raw.default_android_excludes)
             .bufferedReader()
             .use { it.readText().trimEnd() }
+        secretStore = AndroidKeystoreSecretStore(this)
         repository = AppRepository(File(filesDir, "app-state.json"), defaultExcludes).also {
             it.loadBlocking()
+            ensureGlobalSshKey(it)
             DeviceHostnameReader.read(this)?.let { deviceHostname ->
                 it.update { state -> state.withDetectedPhoneHostname(deviceHostname) }
             }
         }
-        secretStore = AndroidKeystoreSecretStore(this)
         NativeBinaryManager(this).ensureInstalled()
+    }
+
+    private fun ensureGlobalSshKey(repository: AppRepository) {
+        val settings = repository.state.value.sshKeySettings
+        val hasUsablePrivateKey = settings.privateKeySecretAlias
+            ?.let { alias -> secretStore.get(alias) != null }
+            ?: false
+        if (hasUsablePrivateKey && settings.publicKey != null) return
+
+        val generated = SshKeyManager(secretStore).generateEd25519()
+        repository.update { state ->
+            state.copy(
+                sshKeySettings = GlobalSshKeySettings(
+                    publicKey = generated.publicKey,
+                    privateKeySecretAlias = generated.privateKeyAlias,
+                    generatedAt = generated.generatedAt,
+                ),
+            )
+        }
     }
 }

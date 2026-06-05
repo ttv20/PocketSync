@@ -24,7 +24,7 @@ import java.util.UUID
 
 class AppRepository(
     private val dataFile: File,
-    private val defaultExcludes: String,
+    val defaultExcludes: String,
 ) {
     private val mutableState = MutableStateFlow(InitialData.appState(defaultExcludes))
     val state: StateFlow<AppState> = mutableState.asStateFlow()

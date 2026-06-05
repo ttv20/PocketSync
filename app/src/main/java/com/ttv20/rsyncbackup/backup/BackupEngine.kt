@@ -9,6 +9,7 @@ import com.ttv20.rsyncbackup.model.RunProgressPhase
 import com.ttv20.rsyncbackup.model.RunProgressState
 import com.ttv20.rsyncbackup.model.RunStatus
 import com.ttv20.rsyncbackup.model.requiresTailscale
+import com.ttv20.rsyncbackup.model.resolvedSshKeySettings
 import com.ttv20.rsyncbackup.model.routeOrder
 import com.ttv20.rsyncbackup.model.toJson
 import com.ttv20.rsyncbackup.storage.AppRepository
@@ -102,12 +103,13 @@ class BackupEngine(
                 restoredTailscaleStateAlias = stateAlias
             }
 
-            val privateKeyAlias = state.sshKeySettings.privateKeySecretAlias
+            val sshKeySettings = target.resolvedSshKeySettings(state.sshKeySettings)
+            val privateKeyAlias = sshKeySettings.privateKeySecretAlias
             val privateKeyBytes = privateKeyAlias?.let(secretStore::get)
             if (privateKeyBytes == null) {
                 return@withContext failedLog("No SSH private key is configured")
             }
-            val passphraseBytes = state.sshKeySettings.passphraseSecretAlias?.let { alias ->
+            val passphraseBytes = sshKeySettings.passphraseSecretAlias?.let { alias ->
                 secretStore.get(alias) ?: return@withContext failedLog("SSH private key passphrase is missing")
             }
             val knownHostsText = SshRuntimeFiles.knownHostsText(target, state.trustedHostFingerprints)

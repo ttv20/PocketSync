@@ -40,7 +40,7 @@ object ProfileValidator {
         if (profile.targetMode.requiresLan() && target.lanHost.isBlank()) {
             issues += ValidationIssue(
                 "lan_host_missing",
-                "This target mode needs a LAN host",
+                "This target mode needs a server address",
                 Severity.ERROR,
             )
         }
@@ -48,7 +48,7 @@ object ProfileValidator {
             if (target.tailscaleHost.isNullOrBlank()) {
                 issues += ValidationIssue(
                     "tailscale_host_missing",
-                    "This target mode needs a Tailscale host",
+                    "This target mode needs a Tailscale device",
                     Severity.ERROR,
                 )
             }

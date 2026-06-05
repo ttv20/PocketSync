@@ -594,15 +594,15 @@ private fun configureAskpass(processBuilder: ProcessBuilder, askpassPath: String
 
 private fun Route.targetHost(target: TargetRecord): String =
     when (this) {
-        Route.LAN -> target.lanHost.takeIf { it.isNotBlank() } ?: error("LAN route requires a LAN host")
+        Route.LAN -> target.lanHost.takeIf { it.isNotBlank() } ?: error("Server-address route requires a server address")
         Route.TAILSCALE -> target.tailscaleHost?.takeIf { it.isNotBlank() }
-            ?: error("Tailscale route requires a Tailscale host")
+            ?: error("Tailscale route requires a Tailscale device")
     }
 
 private fun Route.label(): String =
     when (this) {
-        Route.LAN -> "LAN"
-        Route.TAILSCALE -> "Tailscale"
+        Route.LAN -> "Server address"
+        Route.TAILSCALE -> "Tailscale device"
     }
 
 private fun Closeable.closeQuietly() {

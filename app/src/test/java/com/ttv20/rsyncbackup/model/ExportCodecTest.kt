@@ -9,7 +9,7 @@ import org.junit.Test
 class ExportCodecTest {
     @Test
     fun exportOmitsPrivateMaterialAliases() {
-        val state = InitialData.appState("cache/").copy(
+        val state = configuredState().copy(
             sshKeySettings = GlobalSshKeySettings(
                 publicKey = "ssh-ed25519 AAA public",
                 privateKeySecretAlias = "secret-private-key",
@@ -32,7 +32,7 @@ class ExportCodecTest {
 
     @Test
     fun exportUsesTargetSchemaNames() {
-        val encoded = ExportCodec.encode(InitialData.appState("cache/").toExportDocument())
+        val encoded = ExportCodec.encode(configuredState().toExportDocument())
 
         assertTrue(encoded.contains("\"targets\""))
         assertTrue(encoded.contains("\"targetId\""))
@@ -42,7 +42,7 @@ class ExportCodecTest {
 
     @Test
     fun importRestoresNonSecretConfigurationOnly() {
-        val original = InitialData.appState("cache/").copy(
+        val original = configuredState().copy(
             sshKeySettings = GlobalSshKeySettings(
                 publicKey = "ssh-ed25519 AAA public",
                 privateKeySecretAlias = "secret-private-key",
@@ -54,7 +54,7 @@ class ExportCodecTest {
             ),
         )
 
-        val imported = InitialData.appState("other/")
+        val imported = AppState()
             .withImportedConfiguration(ExportCodec.decode(ExportCodec.encode(original.toExportDocument())))
 
         assertEquals(original.targets, imported.targets)
@@ -63,5 +63,28 @@ class ExportCodecTest {
         assertNull(imported.sshKeySettings.privateKeySecretAlias)
         assertFalse(imported.tailscale.isConfigured)
         assertNull(imported.tailscale.stateSecretAlias)
+    }
+
+    private fun configuredState(): AppState {
+        val target = TargetRecord(
+            id = "target-home",
+            name = "Home backup target",
+            user = "ttv20",
+            lanHost = "192.168.3.200",
+            port = 22,
+        )
+        val profile = BackupProfile(
+            id = "profile-phone",
+            name = "Phone shared storage",
+            sourcePath = "/storage/emulated/0",
+            targetId = target.id,
+            remotePath = "/mnt/backup/phone",
+            targetMode = TargetMode.LAN_ONLY,
+            excludes = "cache/",
+        )
+        return AppState(
+            targets = listOf(target),
+            profiles = listOf(profile),
+        )
     }
 }

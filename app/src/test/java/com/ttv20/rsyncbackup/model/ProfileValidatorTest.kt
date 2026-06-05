@@ -8,7 +8,7 @@ import org.junit.Test
 class ProfileValidatorTest {
     @Test
     fun tailscaleModeRequiresTailscaleHost() {
-        val state = InitialData.appState("cache/")
+        val state = configuredState()
         val profile = state.profiles.first().copy(targetMode = TargetMode.TAILSCALE_ONLY)
 
         val issues = ProfileValidator.validate(profile, state)
@@ -19,7 +19,7 @@ class ProfileValidatorTest {
 
     @Test
     fun invalidAdvancedArgsAreRejected() {
-        val state = InitialData.appState("cache/")
+        val state = configuredState()
         val profile = state.profiles.first().copy(
             targetMode = TargetMode.LAN_ONLY,
             advancedArgs = "--exclude 'broken",
@@ -32,7 +32,7 @@ class ProfileValidatorTest {
 
     @Test
     fun lanModeRequiresLanHost() {
-        val state = InitialData.appState("cache/")
+        val state = configuredState()
         val target = state.targets.first().copy(lanHost = "", tailscaleHost = "home-tailnet")
         val profile = state.profiles.first().copy(targetMode = TargetMode.LAN_ONLY)
 
@@ -43,7 +43,7 @@ class ProfileValidatorTest {
 
     @Test
     fun tailscaleOnlyDoesNotRequireLanHost() {
-        val state = InitialData.appState("cache/")
+        val state = configuredState()
         val target = state.targets.first().copy(lanHost = "", tailscaleHost = "home-tailnet")
         val profile = state.profiles.first().copy(targetMode = TargetMode.TAILSCALE_ONLY)
 
@@ -61,7 +61,7 @@ class ProfileValidatorTest {
 
     @Test
     fun defaultRemotePathDoesNotWarnOnSave() {
-        val state = InitialData.appState("cache/")
+        val state = configuredState()
         val profile = state.profiles.first()
 
         val warnings = ProfileValidator.saveWarnings(profile, state)
@@ -71,7 +71,7 @@ class ProfileValidatorTest {
 
     @Test
     fun broadDeleteEnabledRemotePathWarnsOnSave() {
-        val state = InitialData.appState("cache/")
+        val state = configuredState()
         val profile = state.profiles.first().copy(
             targetMode = TargetMode.LAN_ONLY,
             remotePath = "/mnt",
@@ -80,5 +80,29 @@ class ProfileValidatorTest {
         val warnings = ProfileValidator.saveWarnings(profile, state)
 
         assertTrue(warnings.any { it.code == "remote_path_broad_delete" })
+    }
+
+    private fun configuredState(): AppState {
+        val target = TargetRecord(
+            id = "target-home",
+            name = "Home backup target",
+            user = "ttv20",
+            lanHost = "192.168.3.200",
+            port = 22,
+            defaultRemotePath = "/mnt/backup/phone",
+        )
+        val profile = BackupProfile(
+            id = "profile-phone",
+            name = "Phone shared storage",
+            sourcePath = "/storage/emulated/0",
+            targetId = target.id,
+            remotePath = "/mnt/backup/phone",
+            targetMode = TargetMode.LAN_ONLY,
+            excludes = "cache/",
+        )
+        return AppState(
+            targets = listOf(target),
+            profiles = listOf(profile),
+        )
     }
 }

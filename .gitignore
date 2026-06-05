@@ -21,6 +21,7 @@ local.properties
 !.env.example
 *.md
 !docs/tailscale-tsnet-version-bisect.md
+!docs/setup-simplification-plan.md
 *.apk
 *.ap_
 *.aab

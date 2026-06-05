@@ -46,9 +46,9 @@ object RsyncCommandBuilder {
     fun firstRoute(profile: BackupProfile): Route = profile.targetMode.routeOrder().first()
 
     fun targetHost(target: TargetRecord, route: Route): String = when (route) {
-        Route.LAN -> target.lanHost.takeIf { it.isNotBlank() } ?: error("LAN route requires a LAN host")
+        Route.LAN -> target.lanHost.takeIf { it.isNotBlank() } ?: error("Server-address route requires a server address")
         Route.TAILSCALE -> target.tailscaleHost?.takeIf { it.isNotBlank() } ?: error(
-            "Tailscale route requires a Tailscale host"
+            "Tailscale route requires a Tailscale device"
         )
     }
 
