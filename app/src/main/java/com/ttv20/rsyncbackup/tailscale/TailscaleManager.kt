@@ -7,6 +7,7 @@ import com.ttv20.rsyncbackup.storage.SecretStore
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -17,6 +18,22 @@ data class TailscaleCommandResult(
     val exitCode: Int?,
     val output: String,
     val stateSecretAlias: String? = null,
+)
+
+data class TailscalePeer(
+    val host: String,
+    val hostName: String?,
+    val dnsName: String?,
+    val tailscaleIps: List<String>,
+    val online: Boolean,
+    val os: String?,
+)
+
+data class TailscalePeerListResult(
+    val success: Boolean,
+    val peers: List<TailscalePeer>,
+    val exitCode: Int?,
+    val output: String,
 )
 
 class TailscaleManager(
@@ -117,6 +134,43 @@ class TailscaleManager(
         }
         clearPlainState()
         return result
+    }
+
+    fun listPeers(
+        nodeName: String,
+        stateSecretAlias: String?,
+    ): TailscalePeerListResult {
+        runCatching { restoreState(stateSecretAlias) }
+            .onFailure { error ->
+                clearPlainState()
+                return TailscalePeerListResult(
+                    success = false,
+                    peers = emptyList(),
+                    exitCode = null,
+                    output = "Tailscale state restore failed: ${error.message}",
+                )
+            }
+        val result = runHelper(
+            args = listOf(
+                "--state",
+                stateDir().absolutePath,
+                "--hostname",
+                nodeName,
+                "--timeout",
+                "${timeoutSeconds}s",
+                "--list-peers",
+            ),
+        )
+        if (result.success) {
+            persistState(stateSecretAlias ?: STATE_SECRET_ALIAS)
+        }
+        clearPlainState()
+        return TailscalePeerListResult(
+            success = result.success,
+            peers = if (result.success) parsePeerListOutput(result.output) else emptyList(),
+            exitCode = result.exitCode,
+            output = result.output,
+        )
     }
 
     fun restoreState(stateSecretAlias: String?) {
@@ -287,5 +341,30 @@ class TailscaleManager(
                 }
             }
         }
+
+        fun parsePeerListOutput(output: String): List<TailscalePeer> =
+            output.lineSequence()
+                .map { it.trimEnd() }
+                .filter { it.startsWith("PEER\t") }
+                .mapNotNull { line ->
+                    val fields = line.split('\t')
+                    if (fields.size < 6) return@mapNotNull null
+                    val host = fields[1].trim()
+                    if (host.isBlank()) return@mapNotNull null
+                    TailscalePeer(
+                        host = host,
+                        hostName = fields.getOrNull(2)?.trim()?.ifBlank { null },
+                        dnsName = fields.getOrNull(3)?.trim()?.ifBlank { null },
+                        tailscaleIps = fields.getOrNull(4)
+                            ?.split(',')
+                            ?.map { it.trim() }
+                            ?.filter { it.isNotBlank() }
+                            .orEmpty(),
+                        online = fields.getOrNull(5)?.equals("true", ignoreCase = true) == true,
+                        os = fields.getOrNull(6)?.trim()?.ifBlank { null },
+                    )
+                }
+                .distinctBy { it.host.lowercase(Locale.US) }
+                .toList()
     }
 }

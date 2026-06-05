@@ -2,12 +2,16 @@ package com.ttv20.rsyncbackup
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import org.junit.Assert.assertEquals
@@ -193,6 +197,26 @@ class MainActivitySmokeTest {
     }
 
     @Test
+    fun targetPortFieldCanBeClearedWhileEditing() {
+        openScreen("Targets")
+        openFirstTargetEditor()
+
+        composeRule.onNodeWithTag("target-port-field")
+            .performScrollTo()
+            .performTextReplacement("")
+        composeRule.waitForIdle()
+
+        assertEquals("", editableText("target-port-field"))
+        composeRule.onNodeWithTag("target-save-button").assertIsNotEnabled()
+
+        composeRule.onNodeWithTag("target-port-field").performTextReplacement("2222")
+        composeRule.waitForIdle()
+
+        assertEquals("2222", editableText("target-port-field"))
+        composeRule.onNodeWithTag("target-save-button").assertIsEnabled()
+    }
+
+    @Test
     fun profileEditorCanCreateTargetInline() {
         val app = composeRule.activity.application as RsyncBackupApplication
 
@@ -254,6 +278,12 @@ class MainActivitySmokeTest {
         composeRule.onNodeWithTag(tag).assertIsDisplayed().performClick()
         composeRule.waitForIdle()
     }
+
+    private fun editableText(tag: String): String =
+        composeRule.onNodeWithTag(tag)
+            .fetchSemanticsNode()
+            .config[SemanticsProperties.EditableText]
+            .text
 
     private fun openScreen(label: String) {
         composeRule.activity.runOnUiThread {

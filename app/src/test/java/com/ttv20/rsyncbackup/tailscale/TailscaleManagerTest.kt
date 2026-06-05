@@ -1,6 +1,7 @@
 package com.ttv20.rsyncbackup.tailscale
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -63,5 +64,24 @@ class TailscaleManagerTest {
         val line = "tsnet status state=Running selfIPs=100.64.0.1"
 
         assertEquals(null, TailscaleManager.extractTailscaleAuthUrl(line))
+    }
+
+    @Test
+    fun parsesTailscalePeerListOutput() {
+        val output = listOf(
+            "tsnet log line that should be ignored",
+            "PEER\thome.example.ts.net\thome\thome.example.ts.net\t100.64.0.10,fd7a:115c:a1e0::10\ttrue\tlinux",
+            "PEER\tnas\tnas\t\t100.64.0.11\tfalse\t",
+        ).joinToString("\n")
+
+        val peers = TailscaleManager.parsePeerListOutput(output)
+
+        assertEquals(2, peers.size)
+        assertEquals("home.example.ts.net", peers[0].host)
+        assertEquals("home", peers[0].hostName)
+        assertEquals(listOf("100.64.0.10", "fd7a:115c:a1e0::10"), peers[0].tailscaleIps)
+        assertTrue(peers[0].online)
+        assertEquals("nas", peers[1].host)
+        assertFalse(peers[1].online)
     }
 }

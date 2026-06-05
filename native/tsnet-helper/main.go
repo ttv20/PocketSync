@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +33,7 @@ func main() {
 	authKey := flag.String("authkey", "", "tailscale auth key; TS_AUTHKEY is also honored")
 	upOnly := flag.Bool("up", false, "authenticate/start tailscale and print status")
 	checkOnly := flag.Bool("check", false, "connect to host port, print success, then exit")
+	listPeers := flag.Bool("list-peers", false, "print visible Tailscale peers and exit")
 	listenAddr := flag.String("listen", "", "listen locally and forward each connection to host port")
 	sshKeyscan := flag.Bool("ssh-keyscan", false, "scan the SSH host key over tsnet and print a known_hosts line")
 	sshInstallAuthorizedKey := flag.Bool("ssh-install-authorized-key", false, "install an SSH public key using password auth over tsnet")
@@ -53,6 +55,7 @@ func main() {
 	for _, enabled := range []bool{
 		*upOnly,
 		*checkOnly,
+		*listPeers,
 		*listenAddr != "",
 		*sshKeyscan,
 		*sshInstallAuthorizedKey,
@@ -62,7 +65,7 @@ func main() {
 		}
 	}
 	if selectedModes > 1 {
-		fmt.Fprintln(os.Stderr, "--up, --check, --listen, --ssh-keyscan, and --ssh-install-authorized-key are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "--up, --check, --list-peers, --listen, --ssh-keyscan, and --ssh-install-authorized-key are mutually exclusive")
 		os.Exit(2)
 	}
 
@@ -86,6 +89,22 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("state=%s ips=%s\n", status.BackendState, joinedIPs(status.TailscaleIPs))
+		return
+	}
+
+	if *listPeers {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		defer cancel()
+		if flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "usage: tsnet-nc --state DIR --hostname NAME --list-peers")
+			os.Exit(2)
+		}
+		status, err := server.Up(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "tsnet up failed: %v\n", err)
+			os.Exit(1)
+		}
+		printPeerList(status)
 		return
 	}
 
@@ -507,6 +526,55 @@ func peerList(status *ipnstate.Status) string {
 		summaries = append(summaries, fmt.Sprintf("%s/%s/%s", peer.HostName, strings.TrimSuffix(peer.DNSName, "."), joinedIPs(peer.TailscaleIPs)))
 	}
 	return strings.Join(summaries, "; ")
+}
+
+func printPeerList(status *ipnstate.Status) {
+	if status == nil {
+		return
+	}
+	peers := make([]*ipnstate.PeerStatus, 0, len(status.Peer))
+	for _, peer := range status.Peer {
+		peers = append(peers, peer)
+	}
+	sort.SliceStable(peers, func(i, j int) bool {
+		if peers[i].Online != peers[j].Online {
+			return peers[i].Online
+		}
+		return strings.ToLower(preferredPeerHost(peers[i])) < strings.ToLower(preferredPeerHost(peers[j]))
+	})
+	for _, peer := range peers {
+		host := preferredPeerHost(peer)
+		if host == "" {
+			continue
+		}
+		fmt.Printf(
+			"PEER\t%s\t%s\t%s\t%s\t%t\t%s\n",
+			tabSafe(host),
+			tabSafe(peer.HostName),
+			tabSafe(strings.TrimSuffix(peer.DNSName, ".")),
+			tabSafe(joinedIPs(peer.TailscaleIPs)),
+			peer.Online,
+			tabSafe(peer.OS),
+		)
+	}
+}
+
+func preferredPeerHost(peer *ipnstate.PeerStatus) string {
+	dnsName := strings.TrimSuffix(peer.DNSName, ".")
+	if dnsName != "" {
+		return dnsName
+	}
+	if peer.HostName != "" {
+		return peer.HostName
+	}
+	for _, ip := range peer.TailscaleIPs {
+		return ip.String()
+	}
+	return ""
+}
+
+func tabSafe(value string) string {
+	return strings.ReplaceAll(value, "\t", " ")
 }
 
 func normalizeHost(host string) string {
