@@ -1,4 +1,4 @@
-name: GitHub Release APK
+name: Release APK
 
 on:
   push:
@@ -16,9 +16,8 @@ permissions:
 
 jobs:
   release:
-    name: Build GitHub release APK
-    if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ubuntu-latest
+    name: Build release APK
+    runs-on: ${{ github.server_url == 'https://github.com' && 'ubuntu-latest' || 'codeberg-medium' }}
     env:
       RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
       ANDROID_HOME: ${{ github.workspace }}/.android-sdk
@@ -30,6 +29,25 @@ jobs:
         shell: bash
 
     steps:
+      - name: Check out source
+        run: |
+          set -euo pipefail
+
+          git init .
+          if git remote get-url origin >/dev/null 2>&1; then
+            git remote set-url origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          else
+            git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          fi
+
+          if [[ -n "${GITHUB_REF:-}" ]]; then
+            git fetch --depth=1 origin "$GITHUB_REF"
+          else
+            git fetch --depth=1 origin "$GITHUB_SHA"
+          fi
+
+          git checkout --detach FETCH_HEAD
+
       - name: Validate release tag
         run: |
           set -euo pipefail
@@ -42,17 +60,23 @@ jobs:
           echo "POCKETSYNC_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
           echo "POCKETSYNC_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
-      - name: Check out release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-          fetch-depth: 1
-
-      - name: Record release target
-        run: echo "RELEASE_TARGET_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
-      - name: Restore Gradle cache
+      - name: Restore Gradle cache on GitHub
+        if: ${{ github.server_url == 'https://github.com' }}
         uses: actions/cache@v4
+        with:
+          path: |
+            .android-sdk
+            .gradle-cache/caches
+            .gradle-cache/wrapper
+            .gradle
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Restore Gradle cache on Forgejo
+        if: ${{ github.server_url != 'https://github.com' }}
+        continue-on-error: true
+        uses: https://code.forgejo.org/actions/cache@v4
         with:
           path: |
             .android-sdk
@@ -75,8 +99,13 @@ jobs:
           done
 
           if (( ${#apt_install[@]} > 0 )); then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends "${apt_install[@]}"
+            if command -v sudo >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends "${apt_install[@]}"
+            else
+              apt-get update
+              apt-get install -y --no-install-recommends "${apt_install[@]}"
+            fi
           fi
 
           mkdir -p "$ANDROID_HOME/cmdline-tools"
@@ -157,7 +186,8 @@ jobs:
 
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
 
-      - name: Upload workflow artifact
+      - name: Upload workflow artifact on GitHub
+        if: ${{ github.server_url == 'https://github.com' }}
         uses: actions/upload-artifact@v4
         with:
           name: PocketBackup-${{ env.RELEASE_TAG }}-apk
@@ -165,18 +195,101 @@ jobs:
             dist/*.apk
             dist/SHA256SUMS.txt
 
-      - name: Ensure GitHub CLI
+      - name: Upload workflow artifact on Forgejo
+        if: ${{ github.server_url != 'https://github.com' }}
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
+        with:
+          name: PocketBackup-${{ env.RELEASE_TAG }}-apk
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+
+      - name: Publish Codeberg Release
+        if: ${{ github.server_url != 'https://github.com' }}
         run: |
           set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
-            gh --version
-            exit 0
+
+          api_url="${FORGEJO_API_URL:-${GITHUB_API_URL:-$GITHUB_SERVER_URL/api/v1}}"
+          repo="${GITHUB_REPOSITORY}"
+          token="${FORGEJO_TOKEN:-${GITHUB_TOKEN:-}}"
+          if [[ -z "$token" ]]; then
+            echo "FORGEJO_TOKEN/GITHUB_TOKEN is not available for release publishing" >&2
+            exit 1
+          fi
+          auth_header="Authorization: Bearer $token"
+          release_json="$(mktemp)"
+
+          status="$(
+            curl -sS -o "$release_json" -w '%{http_code}' \
+              -H "$auth_header" \
+              "$api_url/repos/$repo/releases/tags/$RELEASE_TAG"
+          )"
+
+          if [[ "$status" == "404" ]]; then
+            jq -n \
+              --arg tag "$RELEASE_TAG" \
+              --arg title "PocketBackup $RELEASE_TAG" \
+              --arg target "$GITHUB_SHA" \
+              '{
+                tag_name: $tag,
+                name: $title,
+                target_commitish: $target,
+                body: "Signed APK and SHA-256 checksums are attached.",
+                draft: false,
+                prerelease: false
+              }' > "$release_json.request"
+
+            curl -fsS -o "$release_json" \
+              -H "$auth_header" \
+              -H 'Content-Type: application/json' \
+              -X POST \
+              --data-binary "@$release_json.request" \
+              "$api_url/repos/$repo/releases"
+          elif [[ "$status" != "200" ]]; then
+            cat "$release_json" >&2
+            echo "Failed to fetch release $RELEASE_TAG: HTTP $status" >&2
+            exit 1
           fi
 
+          release_id="$(jq -r '.id' "$release_json")"
+          if [[ -z "$release_id" || "$release_id" == "null" ]]; then
+            cat "$release_json" >&2
+            echo "Could not determine release ID" >&2
+            exit 1
+          fi
+
+          assets_json="$(mktemp)"
+          curl -fsS -o "$assets_json" \
+            -H "$auth_header" \
+            "$api_url/repos/$repo/releases/$release_id/assets"
+
+          for file in dist/*.apk dist/SHA256SUMS.txt; do
+            name="$(basename "$file")"
+            existing_id="$(jq -r --arg name "$name" '.[] | select(.name == $name) | .id' "$assets_json" | head -n1)"
+            if [[ -n "$existing_id" && "$existing_id" != "null" ]]; then
+              curl -fsS \
+                -H "$auth_header" \
+                -X DELETE \
+                "$api_url/repos/$repo/releases/$release_id/assets/$existing_id"
+            fi
+
+            encoded_name="$(jq -nr --arg name "$name" '$name | @uri')"
+            curl -fsS \
+              -H "$auth_header" \
+              -F "attachment=@$file" \
+              "$api_url/repos/$repo/releases/$release_id/assets?name=$encoded_name" \
+              >/dev/null
+          done
+
+      - name: Install GitHub CLI
+        if: ${{ github.server_url == 'https://github.com' }}
+        run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y gh
 
       - name: Publish GitHub Release
+        if: ${{ github.server_url == 'https://github.com' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -189,6 +302,6 @@ jobs:
               dist/*.apk \
               dist/SHA256SUMS.txt \
               --title "PocketBackup $RELEASE_TAG" \
-              --target "$RELEASE_TARGET_SHA" \
+              --target "$GITHUB_SHA" \
               --generate-notes
           fi
