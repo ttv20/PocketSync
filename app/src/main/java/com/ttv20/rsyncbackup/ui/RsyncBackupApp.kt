@@ -1,4 +1,5 @@
 @file:OptIn(
+    androidx.compose.animation.ExperimentalAnimationApi::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
 )
@@ -14,6 +15,24 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -116,6 +135,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -894,62 +915,78 @@ private fun OnboardingFlow(
                 .fillMaxWidth()
                 .testTag("onboarding-${step.name.lowercase()}"),
         ) {
-            when (step) {
-                OnboardingStep.Welcome -> WelcomeStep(
-                    onStart = { goTo(OnboardingStep.Permissions) },
-                    onSkip = { onExitToDashboard(false) },
-                )
-                OnboardingStep.Permissions -> OnboardingPermissionsStep(
-                    permissions = permissions,
-                    onRefreshPermissions = onRefreshPermissions,
-                    onContinue = { goTo(OnboardingStep.Tailscale) },
-                )
-                OnboardingStep.Tailscale -> OnboardingWrappedScreen(
-                    onContinue = { goTo(OnboardingStep.NewTarget) },
-                ) {
-                    TailscaleScreen(state, repository, secretStore)
+            AnimatedContent(
+                targetState = step,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (OnboardingSteps.indexOf(targetState) >= OnboardingSteps.indexOf(initialState)) 1 else -1
+                    (
+                        slideInHorizontally(animationSpec = tween(240)) { width -> width / 5 * direction } +
+                            fadeIn(animationSpec = tween(180))
+                        ).togetherWith(
+                        slideOutHorizontally(animationSpec = tween(180)) { width -> -width / 7 * direction } +
+                            fadeOut(animationSpec = tween(140)),
+                    )
+                },
+                label = "onboarding-step",
+            ) { targetStep ->
+                when (targetStep) {
+                    OnboardingStep.Welcome -> WelcomeStep(
+                        onStart = { goTo(OnboardingStep.Permissions) },
+                        onSkip = { onExitToDashboard(false) },
+                    )
+                    OnboardingStep.Permissions -> OnboardingPermissionsStep(
+                        permissions = permissions,
+                        onRefreshPermissions = onRefreshPermissions,
+                        onContinue = { goTo(OnboardingStep.Tailscale) },
+                    )
+                    OnboardingStep.Tailscale -> OnboardingWrappedScreen(
+                        onContinue = { goTo(OnboardingStep.NewTarget) },
+                    ) {
+                        TailscaleScreen(state, repository, secretStore)
+                    }
+                    OnboardingStep.NewTarget -> OnboardingTargetStep(
+                        state = state,
+                        target = targetDraft,
+                        repository = repository,
+                        secretStore = secretStore,
+                        onBack = { goTo(OnboardingStep.Tailscale) },
+                        onBackHandlerChange = { childBackHandler = it },
+                        onSave = { savedTarget ->
+                            targetDraft = savedTarget
+                            savedTargetId = savedTarget.id
+                            goTo(OnboardingStep.NewProfile)
+                        },
+                    )
+                    OnboardingStep.NewProfile -> OnboardingProfileStep(
+                        state = state,
+                        profile = profileDraft,
+                        repository = repository,
+                        secretStore = secretStore,
+                        onBack = { goTo(OnboardingStep.NewTarget) },
+                        onBackHandlerChange = { childBackHandler = it },
+                        onSave = { savedProfile ->
+                            profileDraft = savedProfile
+                            savedProfileId = savedProfile.id
+                            goTo(OnboardingStep.Review)
+                        },
+                    )
+                    OnboardingStep.Review -> OnboardingReviewStep(
+                        state = state,
+                        permissions = permissions,
+                        profileId = savedProfileId ?: profileDraft.id,
+                        dryRunResult = dryRunResult,
+                        onDryRun = {
+                            dryRunResult = startDryRun(
+                                savedProfileId ?: profileDraft.id,
+                                state,
+                                permissions,
+                                AndroidConstraintSnapshotReader(context).read(),
+                            )
+                        },
+                        onFinish = { onExitToDashboard(true) },
+                    )
                 }
-                OnboardingStep.NewTarget -> OnboardingTargetStep(
-                    state = state,
-                    target = targetDraft,
-                    repository = repository,
-                    secretStore = secretStore,
-                    onBack = { goTo(OnboardingStep.Tailscale) },
-                    onBackHandlerChange = { childBackHandler = it },
-                    onSave = { savedTarget ->
-                        targetDraft = savedTarget
-                        savedTargetId = savedTarget.id
-                        goTo(OnboardingStep.NewProfile)
-                    },
-                )
-                OnboardingStep.NewProfile -> OnboardingProfileStep(
-                    state = state,
-                    profile = profileDraft,
-                    repository = repository,
-                    secretStore = secretStore,
-                    onBack = { goTo(OnboardingStep.NewTarget) },
-                    onBackHandlerChange = { childBackHandler = it },
-                    onSave = { savedProfile ->
-                        profileDraft = savedProfile
-                        savedProfileId = savedProfile.id
-                        goTo(OnboardingStep.Review)
-                    },
-                )
-                OnboardingStep.Review -> OnboardingReviewStep(
-                    state = state,
-                    permissions = permissions,
-                    profileId = savedProfileId ?: profileDraft.id,
-                    dryRunResult = dryRunResult,
-                    onDryRun = {
-                        dryRunResult = startDryRun(
-                            savedProfileId ?: profileDraft.id,
-                            state,
-                            permissions,
-                            AndroidConstraintSnapshotReader(context).read(),
-                        )
-                    },
-                    onFinish = { onExitToDashboard(true) },
-                )
             }
         }
     }
@@ -1128,13 +1165,15 @@ private fun OnboardingReviewStep(
                 }
             }
         }
-        dryRunResult?.let { result ->
-            SectionCard {
-                Text("Dry run result", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(result.message)
-                if (!result.passed) {
-                    result.checklist.filterNot { it.complete }.forEach { item ->
-                        ChecklistRow(item.label, false, item.nextAction)
+        AnimatedStateBlock(visible = dryRunResult != null) {
+            dryRunResult?.let { result ->
+                SectionCard {
+                    Text("Dry run result", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(result.message)
+                    if (!result.passed) {
+                        result.checklist.filterNot { it.complete }.forEach { item ->
+                            ChecklistRow(item.label, false, item.nextAction)
+                        }
                     }
                 }
             }
@@ -1328,43 +1367,59 @@ private fun AppScaffold(
             if (onboardingContent != null) {
                 onboardingContent()
             } else {
-                when (screen) {
-                    Screen.Dashboard -> DashboardScreen(
-                        state,
-                        permissions,
-                        onRun = { BackupService.start(it.context, it.profileId) },
-                        onStartOnboarding = onStartOnboarding,
-                    )
-                    Screen.Profiles -> ProfilesScreen(
-                        state,
-                        repository,
-                        secretStore,
-                        onOpenDashboard = { onSelect(Screen.Dashboard) },
-                        onDetailActiveChange = { active, back ->
-                            detailScreenActive = active
-                            detailBackHandler = back
-                        },
-                    )
-                    Screen.Targets -> TargetsScreen(
-                        state,
-                        repository,
-                        secretStore,
-                        onDetailActiveChange = { active, back ->
-                            detailScreenActive = active
-                            detailBackHandler = back
-                        },
-                    )
-                    Screen.SshKeys -> SshKeysScreen(state, repository, secretStore)
-                    Screen.Tailscale -> TailscaleScreen(state, repository, secretStore)
-                    Screen.Logs -> LogsScreen(state, repository)
-                    Screen.Settings -> SettingsScreen(
-                        state,
-                        permissions,
-                        repository,
-                        onRefreshPermissions,
-                        onSelect,
-                        onStartOnboarding,
-                    )
+                AnimatedContent(
+                    targetState = screen,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        val direction = if (targetState.ordinal >= initialState.ordinal) 1 else -1
+                        (
+                            slideInHorizontally(animationSpec = tween(220)) { width -> width / 8 * direction } +
+                                fadeIn(animationSpec = tween(180))
+                            ).togetherWith(
+                            slideOutHorizontally(animationSpec = tween(180)) { width -> -width / 10 * direction } +
+                                fadeOut(animationSpec = tween(140)),
+                        )
+                    },
+                    label = "screen-content",
+                ) { targetScreen ->
+                    when (targetScreen) {
+                        Screen.Dashboard -> DashboardScreen(
+                            state,
+                            permissions,
+                            onRun = { BackupService.start(it.context, it.profileId) },
+                            onStartOnboarding = onStartOnboarding,
+                        )
+                        Screen.Profiles -> ProfilesScreen(
+                            state,
+                            repository,
+                            secretStore,
+                            onOpenDashboard = { onSelect(Screen.Dashboard) },
+                            onDetailActiveChange = { active, back ->
+                                detailScreenActive = active
+                                detailBackHandler = back
+                            },
+                        )
+                        Screen.Targets -> TargetsScreen(
+                            state,
+                            repository,
+                            secretStore,
+                            onDetailActiveChange = { active, back ->
+                                detailScreenActive = active
+                                detailBackHandler = back
+                            },
+                        )
+                        Screen.SshKeys -> SshKeysScreen(state, repository, secretStore)
+                        Screen.Tailscale -> TailscaleScreen(state, repository, secretStore)
+                        Screen.Logs -> LogsScreen(state, repository)
+                        Screen.Settings -> SettingsScreen(
+                            state,
+                            permissions,
+                            repository,
+                            onRefreshPermissions,
+                            onSelect,
+                            onStartOnboarding,
+                        )
+                    }
                 }
             }
         }
@@ -1449,7 +1504,7 @@ private fun DashboardScreen(
         item {
             SectionHeader("Dashboard")
         }
-        items(state.profiles) { profile ->
+        items(state.profiles, key = { it.id }) { profile ->
             val issues = ProfileValidator.validate(profile, state)
             val checklist = setupChecklistForProfile(profile, state, permissions, constraintSnapshot)
             val liveProgress = state.runProgress.takeIf { it.profileId == profile.id }
@@ -1462,6 +1517,7 @@ private fun DashboardScreen(
                     issues = issues,
                     showRunStatus = true,
                     liveProgress = liveProgress,
+                    isRunning = isRunningProfile,
                     trailing = {
                         Button(
                             onClick = {
@@ -1518,6 +1574,7 @@ private fun QueueSection(state: AppState) {
                     detail = progressSummary?.message ?: runningProfile?.status?.lastMessage ?: "In progress",
                     metrics = progressSummary?.metrics.orEmpty(),
                     fileLine = progressSummary?.fileLine,
+                    active = true,
                 )
             }
             state.queue.queuedProfileIds.forEach { id ->
@@ -1550,9 +1607,10 @@ private fun QueueRow(
     detail: String,
     metrics: List<Pair<String, String>> = emptyList(),
     fileLine: String? = null,
+    active: Boolean = false,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        StatusBadge(label, MetricTone.Route)
+        StatusBadge(label, MetricTone.Route, animated = active)
         Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1593,13 +1651,18 @@ private fun ProfileListRow(
     modifier: Modifier = Modifier,
     showRunStatus: Boolean = false,
     liveProgress: RunProgressState? = null,
+    isRunning: Boolean = false,
     trailing: @Composable () -> Unit,
 ) {
     SectionCard(
         modifier = modifier,
     ) {
         Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
-            EntityIcon(Icons.Outlined.Folder, if (issues.any { it.severity == Severity.ERROR }) MetricTone.Warning else MetricTone.Route)
+            EntityIcon(
+                icon = if (isRunning) Icons.Outlined.Sync else Icons.Outlined.Folder,
+                tone = if (issues.any { it.severity == Severity.ERROR }) MetricTone.Warning else MetricTone.Route,
+                animated = isRunning,
+            )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
@@ -1668,18 +1731,22 @@ private fun targetConnectionSummary(target: TargetRecord): String {
 }
 
 @Composable
-private fun EntityIcon(icon: ImageVector, tone: MetricTone) {
+private fun EntityIcon(icon: ImageVector, tone: MetricTone, animated: Boolean = false) {
+    val pulseScale = activePulseScale(animated)
+    val rotation = activeRotationDegrees(animated)
     Surface(
         color = toneContainerColor(tone),
         contentColor = toneOnContainerColor(tone),
         shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.scale(pulseScale),
     ) {
         Icon(
             icon,
             contentDescription = null,
             modifier = Modifier
                 .padding(8.dp)
-                .size(22.dp),
+                .size(22.dp)
+                .rotate(rotation),
         )
     }
 }
@@ -1714,6 +1781,7 @@ private fun DashboardRunStatusLine(profile: BackupProfile, liveProgress: RunProg
         StatusBadge(
             label = live?.let { phaseLabel(it.phase) } ?: profile.status.lastStatus.displayLabel(),
             tone = live?.let { MetricTone.Route } ?: profile.status.lastStatus.tone(),
+            animated = live?.phase?.hasActiveMotion() == true,
         )
     }
 }
@@ -1728,11 +1796,13 @@ private fun RouteSummaryLine(label: String, value: String, tone: MetricTone) {
 }
 
 @Composable
-private fun StatusBadge(label: String, tone: MetricTone) {
+private fun StatusBadge(label: String, tone: MetricTone, animated: Boolean = false) {
+    val pulseScale = activePulseScale(animated)
     Surface(
         color = toneContainerColor(tone),
         contentColor = toneOnContainerColor(tone),
         shape = RoundedCornerShape(50),
+        modifier = Modifier.scale(pulseScale),
     ) {
         Text(
             label,
@@ -1741,6 +1811,26 @@ private fun StatusBadge(label: String, tone: MetricTone) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             maxLines = 1,
         )
+    }
+}
+
+@Composable
+private fun AnimatedStateBlock(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(animationSpec = tween(180)) +
+            slideInVertically(animationSpec = tween(180)) { height -> -height / 6 } +
+            fadeIn(animationSpec = tween(140)),
+        exit = shrinkVertically(animationSpec = tween(150)) +
+            slideOutVertically(animationSpec = tween(150)) { height -> -height / 8 } +
+            fadeOut(animationSpec = tween(110)),
+        modifier = modifier,
+    ) {
+        content()
     }
 }
 
@@ -1982,108 +2072,125 @@ private fun ProfilesScreen(
     DisposableEffect(Unit) {
         onDispose { onDetailActiveChange(false, null) }
     }
-    val editingProfile = editorProfile
-    if (compactEditorOpen && editingProfile != null) {
-        val isDraft = editorIsDraft
-        ProfileEditor(
-            state = state,
-            profile = editingProfile,
-            onSave = {
-                repository.upsertProfile(it)
-                scheduler.schedule(it)
-                closeEditor()
-            },
-            onDelete = {
-                if (!isDraft) {
-                    scheduler.cancel(editingProfile.id)
-                    repository.removeProfile(editingProfile.id)
-                }
-                closeEditor()
-            },
-            onAddTarget = addTargetFromProfile,
-            secretStore = secretStore,
-            onBack = closeEditor,
-            onBackHandlerChange = { editorBackHandler = it },
-            isDraft = isDraft,
-            deleteLabel = if (isDraft) "Cancel" else "Delete",
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else {
-        Box(Modifier.fillMaxSize()) {
-            LazyColumn(
+    AnimatedContent(
+        targetState = editorProfile,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val opening = targetState != null
+            val direction = if (opening) 1 else -1
+            (
+                slideInHorizontally(animationSpec = tween(220)) { width -> width / 6 * direction } +
+                    fadeIn(animationSpec = tween(160))
+                ).togetherWith(
+                slideOutHorizontally(animationSpec = tween(170)) { width -> -width / 8 * direction } +
+                    fadeOut(animationSpec = tween(130)),
+            )
+        },
+        label = "profile-editor-swap",
+    ) { editingProfile ->
+        if (editingProfile != null) {
+            val isDraft = editorIsDraft
+            ProfileEditor(
+                state = state,
+                profile = editingProfile,
+                onSave = {
+                    repository.upsertProfile(it)
+                    scheduler.schedule(it)
+                    closeEditor()
+                },
+                onDelete = {
+                    if (!isDraft) {
+                        scheduler.cancel(editingProfile.id)
+                        repository.removeProfile(editingProfile.id)
+                    }
+                    closeEditor()
+                },
+                onAddTarget = addTargetFromProfile,
+                secretStore = secretStore,
+                onBack = closeEditor,
+                onBackHandlerChange = { editorBackHandler = it },
+                isDraft = isDraft,
+                deleteLabel = if (isDraft) "Cancel" else "Delete",
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item {
-                    SectionHeader("Profiles")
-                }
-                items(state.profiles, key = { it.id }) { profile ->
-                    val target = state.targets.firstOrNull { it.id == profile.targetId }
-                    val issues = ProfileValidator.validate(profile, state)
-                    val isRunningProfile = state.queue.runningProfileId == profile.id
-                    ProfileListRow(
-                        profile = profile,
-                        target = target,
-                        issues = issues,
-                        trailing = {
-                            Column(
-                                horizontalAlignment = Alignment.End,
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        if (isRunningProfile) {
-                                            BackupService.cancel(context)
-                                        } else {
-                                            BackupService.start(context, profile.id)
-                                            onOpenDashboard()
-                                        }
-                                    },
-                                    enabled = isRunningProfile || issues.none { it.severity == Severity.ERROR },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                ) {
-                                    Icon(
-                                        if (isRunningProfile) Icons.Outlined.Error else Icons.Outlined.PlayArrow,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(if (isRunningProfile) "Stop" else "Run")
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        editorIsDraft = false
-                                        editorProfile = profile
-                                        onDetailActiveChange(true, closeEditor)
-                                        compactEditorOpen = true
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                ) {
-                                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Edit")
-                                }
-                            }
-                        },
-                    )
-                }
-                if (state.profiles.isEmpty()) {
+            )
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     item {
-                        EmptyActionRow("No profiles yet", "Add profile", Icons.Outlined.Add, addProfile)
+                        SectionHeader("Profiles")
+                    }
+                    items(state.profiles, key = { it.id }) { profile ->
+                        val target = state.targets.firstOrNull { it.id == profile.targetId }
+                        val issues = ProfileValidator.validate(profile, state)
+                        val isRunningProfile = state.queue.runningProfileId == profile.id
+                        ProfileListRow(
+                            profile = profile,
+                            target = target,
+                            issues = issues,
+                            isRunning = isRunningProfile,
+                            trailing = {
+                                Column(
+                                    horizontalAlignment = Alignment.End,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            if (isRunningProfile) {
+                                                BackupService.cancel(context)
+                                            } else {
+                                                BackupService.start(context, profile.id)
+                                                onOpenDashboard()
+                                            }
+                                        },
+                                        enabled = isRunningProfile || issues.none { it.severity == Severity.ERROR },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    ) {
+                                        Icon(
+                                            if (isRunningProfile) Icons.Outlined.Error else Icons.Outlined.PlayArrow,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(if (isRunningProfile) "Stop" else "Run")
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            editorIsDraft = false
+                                            editorProfile = profile
+                                            onDetailActiveChange(true, closeEditor)
+                                            compactEditorOpen = true
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Edit")
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    if (state.profiles.isEmpty()) {
+                        item {
+                            EmptyActionRow("No profiles yet", "Add profile", Icons.Outlined.Add, addProfile)
+                        }
                     }
                 }
+                ExtendedFloatingActionButton(
+                    onClick = addProfile,
+                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                    text = { Text("Add profile") },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .imePadding()
+                        .padding(16.dp)
+                        .testTag("profiles-add-button"),
+                )
             }
-            ExtendedFloatingActionButton(
-                onClick = addProfile,
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("Add profile") },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .imePadding()
-                    .padding(16.dp)
-                    .testTag("profiles-add-button"),
-            )
         }
     }
 }
@@ -2220,7 +2327,7 @@ private fun ProfileEditor(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             IssueList(issues)
-            if (pendingSaveWarnings.isNotEmpty()) {
+            AnimatedStateBlock(visible = pendingSaveWarnings.isNotEmpty()) {
                 SectionCard {
                     Text("Save warning", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     IssueList(pendingSaveWarnings)
@@ -2267,7 +2374,9 @@ private fun ProfileEditor(
                         Text("Pick")
                     }
                 }
-                sourcePickerError?.let { ErrorText(it) }
+                AnimatedStateBlock(visible = sourcePickerError != null) {
+                    sourcePickerError?.let { ErrorText(it) }
+                }
             }
             SectionCard {
                 Text("Target", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -2415,80 +2524,96 @@ private fun TargetsScreen(
     DisposableEffect(Unit) {
         onDispose { onDetailActiveChange(false, null) }
     }
-    val editingTarget = editorTarget
-    if (compactEditorOpen && editingTarget != null) {
-        val isDraft = editorIsDraft
-        TargetEditor(
-            state = state,
-            target = editingTarget,
-            repository = repository,
-            secretStore = secretStore,
-            onSave = {
-                repository.upsertTarget(it)
-                closeEditor()
-            },
-            onBack = closeEditor,
-            onBackHandlerChange = { editorBackHandler = it },
-            isDraft = isDraft,
-            cancelLabel = if (isDraft) "Cancel" else "Back",
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else {
-        Box(Modifier.fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item {
-                    SectionHeader("Targets")
-                }
-                items(state.targets, key = { it.id }) { target ->
-                    val trusted = state.trustedHostFingerprints.any {
-                        it.targetId == target.id || it.targetId == target.fingerprintGroupId
-                    }
-                    TargetListRow(
-                        target = target,
-                        trusted = trusted,
-                        trailing = {
-                            Column(
-                                horizontalAlignment = Alignment.End,
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                StatusBadge(if (trusted) "Reachable" else "Needs fingerprint", if (trusted) MetricTone.Success else MetricTone.Warning)
-                                FilledTonalButton(
-                                    onClick = {
-                                        editorIsDraft = false
-                                        editorTarget = target
-                                        onDetailActiveChange(true, closeEditor)
-                                        compactEditorOpen = true
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                ) {
-                                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Edit")
-                                }
-                            }
-                        },
-                    )
-                }
-                if (state.targets.isEmpty()) {
-                    item {
-                        EmptyActionRow("No targets yet", "Add target", Icons.Outlined.Add, addTarget)
-                    }
-                }
-            }
-            ExtendedFloatingActionButton(
-                onClick = addTarget,
-                icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
-                text = { Text("Add target") },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .imePadding()
-                    .padding(16.dp)
-                    .testTag("targets-add-button"),
+    AnimatedContent(
+        targetState = editorTarget,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val opening = targetState != null
+            val direction = if (opening) 1 else -1
+            (
+                slideInHorizontally(animationSpec = tween(220)) { width -> width / 6 * direction } +
+                    fadeIn(animationSpec = tween(160))
+                ).togetherWith(
+                slideOutHorizontally(animationSpec = tween(170)) { width -> -width / 8 * direction } +
+                    fadeOut(animationSpec = tween(130)),
             )
+        },
+        label = "target-editor-swap",
+    ) { editingTarget ->
+        if (editingTarget != null) {
+            val isDraft = editorIsDraft
+            TargetEditor(
+                state = state,
+                target = editingTarget,
+                repository = repository,
+                secretStore = secretStore,
+                onSave = {
+                    repository.upsertTarget(it)
+                    closeEditor()
+                },
+                onBack = closeEditor,
+                onBackHandlerChange = { editorBackHandler = it },
+                isDraft = isDraft,
+                cancelLabel = if (isDraft) "Cancel" else "Back",
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 12.dp, top = 10.dp, end = 12.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        SectionHeader("Targets")
+                    }
+                    items(state.targets, key = { it.id }) { target ->
+                        val trusted = state.trustedHostFingerprints.any {
+                            it.targetId == target.id || it.targetId == target.fingerprintGroupId
+                        }
+                        TargetListRow(
+                            target = target,
+                            trusted = trusted,
+                            trailing = {
+                                Column(
+                                    horizontalAlignment = Alignment.End,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    StatusBadge(if (trusted) "Reachable" else "Needs fingerprint", if (trusted) MetricTone.Success else MetricTone.Warning)
+                                    FilledTonalButton(
+                                        onClick = {
+                                            editorIsDraft = false
+                                            editorTarget = target
+                                            onDetailActiveChange(true, closeEditor)
+                                            compactEditorOpen = true
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Edit")
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    if (state.targets.isEmpty()) {
+                        item {
+                            EmptyActionRow("No targets yet", "Add target", Icons.Outlined.Add, addTarget)
+                        }
+                    }
+                }
+                ExtendedFloatingActionButton(
+                    onClick = addTarget,
+                    icon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                    text = { Text("Add target") },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .imePadding()
+                        .padding(16.dp)
+                        .testTag("targets-add-button"),
+                )
+            }
         }
     }
 }
@@ -2795,11 +2920,15 @@ private fun TargetEditor(
                 if (selectedSshKeySettings.privateKeySecretAlias == null || selectedSshKeySettings.publicKey == null) {
                     FeedbackBanner("SSH key unavailable", "Open Settings and configure an SSH key before connecting.", MetricTone.Warning)
                 }
-                connectMessage?.let {
-                    FeedbackBanner("Target setup", it, MetricTone.Route)
+                AnimatedStateBlock(visible = connectMessage != null) {
+                    connectMessage?.let {
+                        FeedbackBanner("Target setup", it, MetricTone.Route)
+                    }
                 }
-                connectError?.let {
-                    FeedbackBanner("Connection failed", it, MetricTone.Destructive)
+                AnimatedStateBlock(visible = connectError != null) {
+                    connectError?.let {
+                        FeedbackBanner("Connection failed", it, MetricTone.Destructive)
+                    }
                 }
             }
             AdvancedSection {
@@ -2891,8 +3020,12 @@ private fun TargetEditor(
                         Spacer(Modifier.width(8.dp))
                         Text("Import target key")
                     }
-                    customKeyMessage?.let { FeedbackBanner("SSH key updated", it, MetricTone.Success) }
-                    customKeyError?.let { FeedbackBanner("SSH key import failed", it, MetricTone.Destructive) }
+                    AnimatedStateBlock(visible = customKeyMessage != null) {
+                        customKeyMessage?.let { FeedbackBanner("SSH key updated", it, MetricTone.Success) }
+                    }
+                    AnimatedStateBlock(visible = customKeyError != null) {
+                        customKeyError?.let { FeedbackBanner("SSH key import failed", it, MetricTone.Destructive) }
+                    }
                 }
             }
             if (!showEditorHeader) {
@@ -4772,6 +4905,51 @@ private fun ProgressMetric(label: String, value: String, modifier: Modifier = Mo
 private fun phaseLabel(phase: RunProgressPhase): String =
     phase.name.lowercase().replace('_', ' ')
 
+private fun RunProgressPhase.hasActiveMotion(): Boolean =
+    when (this) {
+        RunProgressPhase.PREPARING,
+        RunProgressPhase.RUNNING_RSYNC,
+        RunProgressPhase.UPLOADING_STATUS,
+        RunProgressPhase.CANCELLING,
+        RunProgressPhase.FORCE_STOPPING -> true
+        RunProgressPhase.IDLE,
+        RunProgressPhase.COMPLETED,
+        RunProgressPhase.FAILED,
+        RunProgressPhase.CANCELLED -> false
+    }
+
+@Composable
+private fun activePulseScale(active: Boolean): Float {
+    if (!active) return 1f
+    val transition = rememberInfiniteTransition(label = "active-pulse")
+    val scale by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.07f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "active-pulse-scale",
+    )
+    return scale
+}
+
+@Composable
+private fun activeRotationDegrees(active: Boolean): Float {
+    if (!active) return 0f
+    val transition = rememberInfiniteTransition(label = "active-rotation")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "active-rotation-degrees",
+    )
+    return rotation
+}
+
 private fun RunProgressPhase.notificationLabel(): String =
     when (this) {
         RunProgressPhase.IDLE -> "Waiting"
@@ -4803,7 +4981,9 @@ private fun SectionCard(
         )
     }
     ElevatedCard(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(animationSpec = tween(durationMillis = 220)),
         shape = MaterialTheme.shapes.large,
         colors = colors,
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = if (selected) 2.dp else 0.dp),
@@ -4836,8 +5016,16 @@ private fun AdvancedSection(
                 contentDescription = if (expanded) "Collapse" else "Expand",
             )
         }
-        if (expanded) {
-            content()
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(140)),
+            exit = shrinkVertically(animationSpec = tween(160)) + fadeOut(animationSpec = tween(120)),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                content = content,
+            )
         }
     }
 }
