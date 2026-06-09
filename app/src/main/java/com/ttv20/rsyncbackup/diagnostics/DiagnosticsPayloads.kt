@@ -59,11 +59,14 @@ internal object DiagnosticsPayloads {
         val packageInfo = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0)
         }.getOrNull()
+        val installSource = DiagnosticsInstallSourceResolver.resolve(context)
         put("app_version", packageInfo?.versionName ?: BuildConfig.VERSION_NAME)
         put("app_version_code", packageInfo?.versionCodeCompat() ?: BuildConfig.VERSION_CODE.toLong())
         put("build_channel", BuildConfig.BUILD_CHANNEL)
         put("debug_build", BuildConfig.DEBUG)
         put("fdroid_build", BuildConfig.IS_FDROID_BUILD)
+        put("installation_source", installSource.source)
+        installSource.packageName?.let { put("installation_source_package", it) }
         put("android_version", Build.VERSION.RELEASE.orEmpty())
         put("sdk_level", Build.VERSION.SDK_INT)
         put("device_model", DiagnosticsSanitizer.scrubAttributeText("${Build.MANUFACTURER} ${Build.MODEL}".trim()))
