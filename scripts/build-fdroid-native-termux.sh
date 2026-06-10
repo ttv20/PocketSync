@@ -66,6 +66,33 @@ if [ -z "$termux_repo_url" ] || [ -z "$termux_commit" ] || [ -z "$termux_arch" ]
   exit 1
 fi
 
+patch_termux_toolchain_overlay() {
+  [ "${FDROID_NATIVE_TOOLCHAIN_MODE:-}" = "copy" ] || return 0
+  local setup_script="$repo_dir/scripts/build/toolchain/termux_setup_toolchain_29.sh"
+  python3 - "$setup_script" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '''\tif ! mountpoint -q "${TERMUX_STANDALONE_TOOLCHAIN}"; then
+\t\tfuse-overlayfs \\
+\t\t\t"${TERMUX_STANDALONE_TOOLCHAIN}" \\
+\t\t\t-o lowerdir="${NDK}/toolchains/llvm/prebuilt/linux-x86_64" \\
+\t\t\t-o upperdir="${TERMUX_STANDALONE_TOOLCHAIN}-upper" \\
+\t\t\t-o workdir="${TERMUX_STANDALONE_TOOLCHAIN}-work"
+\tfi
+'''
+new = '''\tif [ ! -f "${TERMUX_STANDALONE_TOOLCHAIN}/.termux-standalone-toolchain" ]; then
+\t\tcp -a "${NDK}/toolchains/llvm/prebuilt/linux-x86_64/." "${TERMUX_STANDALONE_TOOLCHAIN}/"
+\tfi
+'''
+if old not in text:
+    raise SystemExit(f"Termux toolchain overlay block not found in {path}")
+path.write_text(text.replace(old, new))
+PY
+}
+
 mkdir -p "$work_dir"
 if [ "${FDROID_NATIVE_SKIP_TERMUX_BUILD:-0}" != "1" ]; then
   if [ ! -d "$repo_dir/.git" ]; then
@@ -73,6 +100,7 @@ if [ "${FDROID_NATIVE_SKIP_TERMUX_BUILD:-0}" != "1" ]; then
   fi
   git -C "$repo_dir" fetch --tags --force origin "$termux_commit"
   git -C "$repo_dir" checkout --detach "$termux_commit"
+  patch_termux_toolchain_overlay
 fi
 
 rm -rf "$termux_root_dir" "$project_dir/native/fdroid-out"
