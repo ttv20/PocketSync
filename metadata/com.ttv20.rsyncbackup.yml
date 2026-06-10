@@ -1,3 +1,7 @@
+AntiFeatures:
+  NonFreeNet:
+    en-US: Optional Tailscale use connects to Tailscale coordination services. LAN-only
+      backup does not require Tailscale.
 Categories:
   - Connectivity
   - System
@@ -6,6 +10,7 @@ AuthorName: ttv20
 SourceCode: https://codeberg.org/ttv20/PocketBackup
 IssueTracker: https://codeberg.org/ttv20/PocketBackup/issues
 Changelog: https://codeberg.org/ttv20/PocketBackup/releases
+
 Name: Pocket Backup
 Summary: Backups to your own server with rsync with built-in Tailscale client
 Description: |-
@@ -15,34 +20,22 @@ Description: |-
   The app requests all-files access so it can back up shared storage selected by
   the user. Restore is not included yet.
 
-AntiFeatures:
-  NonFreeNet:
-    en-US: Optional Tailscale use connects to Tailscale coordination services. LAN-only backup does not require Tailscale.
-
 RepoType: git
 Repo: https://codeberg.org/ttv20/PocketBackup.git
 
-MaintainerNotes: |-
-  The fdroidRelease build generates native rsync/OpenSSH/zstd assets from the
-  pinned Termux package recipes in native/fdroid-native-sources.lock, then
-  builds the Android tsnet helper from native/tsnet-helper/go.mod and go.sum.
-  app/src/sideload contains upstream sideload-release prebuilts and is removed
-  from this build before scanning.
-
 Builds:
-  - versionName: "1.0-beta"
+  - versionName: 1.0-beta
     versionCode: 9
     commit: 24001b131aed7a2aecb8c2858963203d9723ae19
-    subdir: .
     timeout: 7200
-    ndk: 29.0.14206865
     sudo: |-
+      apt-get install -y jq
       mkdir -p /data
       chown vagrant:vagrant /data
+    output: app/build/outputs/apk/fdroidRelease/app-fdroidRelease-unsigned.apk
+    prebuild: ./scripts/fdroid-scan-source.sh
     scandelete:
       - app/src/sideload
-    prebuild: |-
-      ./scripts/fdroid-scan-source.sh
     build: |-
       export ANDROID_HOME=$$SDK$$
       export ANDROID_SDK_ROOT=$$SDK$$
@@ -55,9 +48,16 @@ Builds:
       ./scripts/build-fdroid-native-termux.sh --termux-mode host
       export GO_ANDROID_IMAGE="host-$(cd native/tsnet-helper && go env GOVERSION)"
       /home/vagrant/gradlew-fdroid/gradlew-fdroid -p . --no-daemon -Ppocketsync.versionName=$$VERSION$$ -Ppocketsync.versionCode=$$VERCODE$$ assembleFdroidRelease
-    output: app/build/outputs/apk/fdroidRelease/app-fdroidRelease-unsigned.apk
+    ndk: 29.0.14206865
+
+MaintainerNotes: |-
+  The fdroidRelease build generates native rsync/OpenSSH/zstd assets from the
+  pinned Termux package recipes in native/fdroid-native-sources.lock, then
+  builds the Android tsnet helper from native/tsnet-helper/go.mod and go.sum.
+  app/src/sideload contains upstream sideload-release prebuilts and is removed
+  from this build before scanning.
 
 AutoUpdateMode: None
 UpdateCheckMode: None
-CurrentVersion: "1.0-beta"
+CurrentVersion: 1.0-beta
 CurrentVersionCode: 9
