@@ -1,0 +1,12 @@
+Back up selected Android folders to your own rsync target over Tailscale.
+
+The app is designed for private, one-way Android-to-server backup workflows. It includes built-in Tailscale networking, so the official Tailscale Android app is not required. Your rsync destination can be a PC, NAS, VPS, or home server reachable through your tailnet.
+
+Typical use cases:
+
+• Back up photos, videos, downloads, and documents
+• Push Android files to a home server, NAS, or VPS
+• Run regular phone-to-server backups over your tailnet
+• Keep mobile backups inside your own infrastructure
+
+This app is intended for users who already understand rsync and operate their own backup target.

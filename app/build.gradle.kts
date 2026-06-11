@@ -339,3 +339,14 @@ tasks.matching {
 }.configureEach {
     dependsOn(generateFdroidNativeManifest)
 }
+
+val stageFdroidReleaseForFdroidServer by tasks.registering(Copy::class) {
+    from(layout.buildDirectory.dir("outputs/apk/fdroidRelease")) {
+        include("*-unsigned.apk")
+    }
+    into(layout.buildDirectory.dir("outputs/apk/release"))
+}
+
+tasks.matching { it.name == "assembleFdroidRelease" }.configureEach {
+    finalizedBy(stageFdroidReleaseForFdroidServer)
+}

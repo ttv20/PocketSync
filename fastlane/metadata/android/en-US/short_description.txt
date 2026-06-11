@@ -1,0 +1,1 @@
+Back up selected Android folders to your own rsync target over Tailscale.
